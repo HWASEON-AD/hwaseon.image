@@ -309,12 +309,12 @@ function renderCompactResult({ mount, imageUrl, items }) {
           ${memo ? `<div class="card__memo">${escapeHtml(memo)}</div>` : ''}
           ${replacedAt ? `<div class="card__replaced">${replacedAt}</div>` : ''}
           <div class="card__actions">
-            <button class="btn btn--xs btn--outline card__copy" data-url="${fullUrl}">URL 복사</button>
-            <button class="btn btn--xs btn--primary card__replace" data-img-id="${imgId}">교체</button>
+            <button class="btn btn--xs btn--outline card__copy card__btn-equal" data-url="${fullUrl}">URL 복사</button>
+            <button class="btn btn--xs btn--outline card__detail card__btn-equal" data-img-id="${imgId}">상세 보기</button>
           </div>
           <div class="card__actions" style="margin-top:2px;">
-            <button class="btn btn--xs btn--outline card__detail" data-img-id="${imgId}">상세</button>
-            <button class="btn btn--xs btn--danger card__delete" data-img-id="${imgId}">삭제</button>
+            <button class="btn btn--xs btn--primary card__replace card__btn-equal" data-img-id="${imgId}">교체</button>
+            <button class="btn btn--xs btn--danger card__delete card__btn-equal" data-img-id="${imgId}">삭제</button>
           </div>
           <input type="file" class="card__file-input" accept="image/*" data-img-id="${imgId}" />
         </div>
