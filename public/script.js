@@ -233,287 +233,448 @@ function renderCompactResult({ mount, imageUrl, items }) {
  *  - 모든 인라인 스타일 제거, CSS 클래스로 이관
  * ======================================================= */
 (function initDashboardPage(){
-  const tbody = $('#dashboard-tbody');
-  if (!tbody) return;
+  const grid = $('#imageGrid');
+  if (!grid) return;
 
-  // ✅ 방금 클릭한 썸네일의 이미지 ID를 기억
-  let currentImgId = null;
+  let allImages = [];
+  let allBlogLinks = [];
 
+  // 초기화
   (async function init(){
     try {
       const me = await j('/me');
       unhideBody();
 
-      // 사용자 표시
-      const userInfo = $('#userInfo');
-      if (userInfo) userInfo.textContent = me.role === 'admin' ? `관리자 ${me.id}` : me.id;
+      const whoami = $('#whoami');
+      if (whoami) whoami.textContent = me.role === 'admin' ? `관리자 ${me.id}` : me.id;
 
-      // 로그아웃
-      const logoutBtn = $('#logoutBtn');
-      if (logoutBtn) logoutBtn.onclick = async () => { await j('/logout', { method:'POST' }); location.href='login.html'; };
+      const [images, blogData] = await Promise.all([
+        j('/dashboard-data'),
+        j('/blog-links').catch(() => ({ blogLinks: [] }))
+      ]);
 
-      // 엑셀 다운로드
-      const excelBtn = $('#excelDownload');
-      if (excelBtn) {
-        excelBtn.onclick = async ()=>{
-          try {
-            const res  = await fetch('/dashboard-excel', { credentials:'include' });
-            if (!res.ok) throw new Error('엑셀 다운로드 실패');
-            const blob = await res.blob();
-            const url  = URL.createObjectURL(blob);
-            const a    = document.createElement('a');
-            const uid  = (userInfo?.textContent || '').trim();
-            a.href = url; a.download = (uid ? `${uid}_` : '') + 'dashboard.xlsx';
-            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-          } catch(e){ alert('엑셀 다운로드 중 오류가 발생했습니다.'); }
-        };
-      }
+      allImages = images.sort((a,b) => Number(b.id||0) - Number(a.id||0));
+      allBlogLinks = blogData.blogLinks || [];
 
-      // 관리자만 사용자 등록 버튼 표시
-      const regBtn = $('#registerUserBtn');
-      if (regBtn) {
-        if (me.role === 'admin') { regBtn.style.display = ''; regBtn.onclick = ()=> location.href='register.html'; }
-        else regBtn.style.display = 'none';
-      }
-
-      // 데이터 로드 & 렌더
-      const data = await j('/dashboard-data');
-      data.sort((a,b)=>{
-        const aid = Number(a.id || a.filename?.replace(/\D/g,'')); 
-        const bid = Number(b.id || b.filename?.replace(/\D/g,''));
-        return (bid||0)-(aid||0);
-      });
-      renderRows(data);
+      renderImageGrid();
+      renderBlogList();
+      wireTopbarButtons(me);
+      wireBlogForm();
     } catch (e) {
-      if (e?.status === 401) location.href='login.html';
+      if (e?.status === 401) location.href = 'login.html';
       else { console.error(e); alert('대시보드를 불러오지 못했습니다.'); }
     }
   })();
 
-  function renderRows(data){
-    
-    const changeBtn = $('#img-change-btn');
-    if (changeBtn) {
-      changeBtn.onclick = ()=>{
-        if (!currentImgId) { alert('대상 이미지를 찾을 수 없습니다.'); return; }
-        const input = $(`#file-${currentImgId}`);
-        if (!input) { alert('파일 선택기를 찾을 수 없습니다.'); return; }
+  /* ── 헬퍼: 이미지ID → 사용 블로그 배열 맵 ── */
+  function buildUsedMap(blogLinks) {
+    const map = {};
+    for (const bl of blogLinks) {
+      for (const id of (bl.foundImageIds || [])) {
+        if (!map[id]) map[id] = [];
+        map[id].push(bl);
+      }
+    }
+    return map;
+  }
 
-        // 기존 코드와 동일하게: 선택하면 replaceImage(id) 호출
-        input.onchange = ()=> replaceImage(currentImgId);
-        input.click();
+  /* ── 이미지 그리드 렌더 ── */
+  function renderImageGrid() {
+    const usedMap = buildUsedMap(allBlogLinks);
+    const count = $('#imageCount');
+    if (count) count.textContent = `(${allImages.length}개)`;
+
+    grid.innerHTML = '';
+    for (const img of allImages) {
+      const imgId = img.id || (img.url || '').split('/').pop();
+      const imgUrl = img.url || `/image/${imgId}`;
+      const fullUrl = `${location.origin}${imgUrl}`;
+      const thumbUrl = `/image/${imgId}?dashboard=1`;
+      const usedInBlogs = usedMap[imgId] || [];
+      const memo = img.memo || '';
+      const replacedAt = img.replacedAt ? `마지막 교체: ${formatDate(img.replacedAt)}` : '';
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.imageId = imgId;
+      card.innerHTML = `
+        <div class="card__thumb-wrap" data-img-url="${thumbUrl}" data-img-id="${imgId}">
+          <img class="card__thumb" id="thumb-${imgId}" src="${thumbUrl}" alt="${escapeHtml(memo)}" loading="lazy" />
+          ${usedInBlogs.length ? `<button class="card__badge" data-img-id="${imgId}">블로그 사용 중</button>` : ''}
+        </div>
+        <div class="card__body">
+          ${memo ? `<div class="card__memo">${escapeHtml(memo)}</div>` : ''}
+          ${replacedAt ? `<div class="card__replaced">${replacedAt}</div>` : ''}
+          <div class="card__actions">
+            <button class="btn btn--xs btn--outline card__copy" data-url="${fullUrl}">URL 복사</button>
+            <button class="btn btn--xs btn--primary card__replace" data-img-id="${imgId}">교체</button>
+          </div>
+          <div class="card__actions" style="margin-top:2px;">
+            <button class="btn btn--xs btn--outline card__detail" data-img-id="${imgId}">상세</button>
+            <button class="btn btn--xs btn--danger card__delete" data-img-id="${imgId}">삭제</button>
+          </div>
+          <input type="file" class="card__file-input" accept="image/*" data-img-id="${imgId}" />
+        </div>
+      `;
+      grid.appendChild(card);
+    }
+
+    // 이벤트: 썸네일 클릭 → 상세 모달
+    $$('.card__thumb-wrap', grid).forEach(wrap => {
+      wrap.addEventListener('click', (e) => {
+        if (e.target.classList.contains('card__badge')) return;
+        openDetailByImgId(wrap.dataset.imgId);
+      });
+    });
+
+    // 이벤트: URL 복사
+    $$('.card__copy', grid).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.dataset.url;
+        navigator.clipboard.writeText(url).then(() => {
+          const old = btn.textContent;
+          btn.textContent = '복사됨!';
+          setTimeout(() => btn.textContent = old, 1500);
+        }).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = url; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+          showToast('복사됐습니다.', 'success');
+        });
+      });
+    });
+
+    // 이벤트: 이미지 교체
+    $$('.card__replace', grid).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const imgId = btn.dataset.imgId;
+        const fileInput = grid.querySelector(`.card__file-input[data-img-id="${imgId}"]`);
+        if (!fileInput) return;
+        fileInput.onchange = () => doReplaceImage(imgId, fileInput);
+        fileInput.click();
+      });
+    });
+
+    // 이벤트: 상세
+    $$('.card__detail', grid).forEach(btn => {
+      btn.addEventListener('click', () => openDetailByImgId(btn.dataset.imgId));
+    });
+
+    // 이벤트: 삭제
+    $$('.card__delete', grid).forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const imgId = btn.dataset.imgId;
+        if (!confirm('이미지를 삭제하시겠습니까?')) return;
+        try {
+          const r = await j(`/image/${imgId}`, { method: 'DELETE' });
+          if (r?.success) {
+            const card = grid.querySelector(`.card[data-image-id="${imgId}"]`);
+            if (card) card.remove();
+            allImages = allImages.filter(i => (i.id || (i.url||'').split('/').pop()) !== imgId);
+            const count = $('#imageCount');
+            if (count) count.textContent = `(${allImages.length}개)`;
+            showToast('삭제됐습니다.', 'success');
+          }
+        } catch { showToast('삭제 실패', 'error'); }
+      });
+    });
+
+    // 이벤트: 뱃지 클릭
+    $$('.card__badge', grid).forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const imgId = btn.dataset.imgId;
+        const usedMap = buildUsedMap(allBlogLinks);
+        const blogs = usedMap[imgId] || [];
+        showBadgePopover(btn, blogs);
+      });
+    });
+  }
+
+  /* ── 이미지 교체 ── */
+  async function doReplaceImage(imgId, fileInput) {
+    const file = fileInput?.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('id', imgId);
+    try {
+      const res = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
+      if (data.success) {
+        const thumb = $(`#thumb-${imgId}`);
+        if (thumb) thumb.src = data.newUrl + `?t=${Date.now()}`;
+        // replacedAt 표시 갱신
+        const card = grid.querySelector(`.card[data-image-id="${imgId}"]`);
+        if (card && data.replacedAt) {
+          let replaced = card.querySelector('.card__replaced');
+          if (!replaced) {
+            replaced = document.createElement('div');
+            replaced.className = 'card__replaced';
+            const body = card.querySelector('.card__body');
+            if (body) body.insertBefore(replaced, body.querySelector('.card__actions'));
+          }
+          replaced.textContent = `마지막 교체: ${formatDate(data.replacedAt)}`;
+        }
+        showToast('이미지가 교체됐습니다.', 'success');
+      } else {
+        showToast('교체 실패: ' + (data.error || ''), 'error');
+      }
+    } catch { showToast('서버 오류 발생', 'error'); }
+    fileInput.value = '';
+  }
+
+  /* ── 블로그 목록 렌더 ── */
+  function renderBlogList() {
+    const blogList = $('#blogList');
+    if (!blogList) return;
+    if (!allBlogLinks.length) {
+      blogList.innerHTML = '<p style="font-size:13px;color:#9e9e9e;padding:6px 0;">등록된 블로그가 없습니다.</p>';
+      return;
+    }
+    blogList.innerHTML = '';
+    for (const bl of allBlogLinks) {
+      const item = document.createElement('div');
+      item.className = 'blog-item';
+      item.dataset.blogId = bl.id;
+      const shortUrl = bl.url.replace(/^https?:\/\//, '').slice(0, 60);
+      const meta = `이미지 ${bl.foundImageIds?.length || 0}개 · 마지막 스캔: ${formatDate(bl.lastScannedAt)}`;
+      item.innerHTML = `
+        <div class="blog-item__info">
+          <div class="blog-item__url" title="${escapeHtml(bl.url)}">${escapeHtml(shortUrl)}</div>
+          <div class="blog-item__meta">${meta}${bl.scanStatus === 'partial' ? ' (이미지 미감지)' : bl.scanStatus === 'fetch_failed' ? ' (스캔 실패)' : ''}</div>
+        </div>
+        <div class="blog-item__actions">
+          <button class="btn btn--ghost btn--xs blog-rescan" data-blog-id="${bl.id}">재스캔</button>
+          <button class="btn btn--danger btn--xs blog-delete" data-blog-id="${bl.id}">삭제</button>
+        </div>
+      `;
+      blogList.appendChild(item);
+    }
+
+    $$('.blog-rescan', blogList).forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const blogId = btn.dataset.blogId;
+        btn.textContent = '스캔 중...'; btn.disabled = true;
+        try {
+          const r = await j(`/blog-links/${blogId}/rescan`, { method: 'POST' });
+          const bl = allBlogLinks.find(b => b.id === blogId);
+          if (bl) {
+            bl.foundImageIds = r.foundImageIds;
+            bl.lastScannedAt = r.lastScannedAt;
+            bl.scanStatus = r.scanStatus;
+          }
+          renderBlogList();
+          renderImageGrid();
+          showToast('재스캔 완료', 'success');
+        } catch { showToast('재스캔 실패', 'error'); btn.textContent = '재스캔'; btn.disabled = false; }
+      });
+    });
+
+    $$('.blog-delete', blogList).forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const blogId = btn.dataset.blogId;
+        if (!confirm('블로그 URL을 삭제하시겠습니까?')) return;
+        try {
+          await j(`/blog-links/${blogId}`, { method: 'DELETE' });
+          allBlogLinks = allBlogLinks.filter(b => b.id !== blogId);
+          renderBlogList();
+          renderImageGrid();
+          showToast('삭제됐습니다.', 'success');
+        } catch { showToast('삭제 실패', 'error'); }
+      });
+    });
+  }
+
+  /* ── 블로그 폼 ── */
+  function wireBlogForm() {
+    const form = $('#blogForm');
+    const input = $('#blogUrlInput');
+    const submitBtn = $('#blogSubmitBtn');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = (input?.value || '').trim();
+      if (!url) return;
+      submitBtn.textContent = '등록 중...'; submitBtn.disabled = true;
+      try {
+        const r = await j('/blog-links', {
+          method: 'POST',
+          body: JSON.stringify({ url })
+        });
+        if (r.success) {
+          allBlogLinks.push(r.blogLink);
+          renderBlogList();
+          renderImageGrid();
+          input.value = '';
+          const msg = r.blogLink.scanStatus === 'ok'
+            ? `등록됨 — 이미지 ${r.blogLink.foundImageIds?.length || 0}개 감지`
+            : r.blogLink.scanStatus === 'partial'
+              ? '등록됨 — 이미지 자동 감지 실패 (동적 렌더링 가능성)'
+              : '등록됨 — 블로그 스캔 실패';
+          showToast(msg, r.blogLink.scanStatus === 'ok' ? 'success' : 'default');
+        } else {
+          showToast(r.message || '등록 실패', 'error');
+        }
+      } catch (e) {
+        showToast(e?.body?.message || '등록 실패', 'error');
+      }
+      submitBtn.textContent = '등록'; submitBtn.disabled = false;
+    });
+
+    const toggleBtn = $('#blogToggleBtn');
+    const body = $('#blogSectionBody');
+    if (toggleBtn && body) {
+      toggleBtn.addEventListener('click', () => {
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : '';
+        toggleBtn.textContent = isOpen ? '펼치기 ▼' : '접기 ▲';
+      });
+    }
+  }
+
+  /* ── 뱃지 팝오버 ── */
+  function showBadgePopover(anchorEl, blogs) {
+    const pop = $('#badgePopover');
+    const list = $('#badgePopoverList');
+    if (!pop || !list) return;
+    list.innerHTML = blogs.map(bl => `
+      <li class="badge-popover__item">
+        <a class="badge-popover__link" href="${escapeHtml(bl.url)}" target="_blank" title="${escapeHtml(bl.url)}">
+          ${escapeHtml(bl.url.replace(/^https?:\/\//,'').slice(0,50))}
+        </a>
+        <a href="${escapeHtml(bl.url)}" target="_blank" style="font-size:12px;color:var(--brand);flex-shrink:0;">열기 ↗</a>
+      </li>
+    `).join('');
+    pop.classList.remove('hidden');
+    // 위치 계산
+    const rect = anchorEl.getBoundingClientRect();
+    const popW = 280;
+    let left = rect.right + 8;
+    if (left + popW > window.innerWidth) left = rect.left - popW - 8;
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.style.top = Math.max(8, rect.top) + 'px';
+  }
+
+  document.addEventListener('click', (e) => {
+    const pop = $('#badgePopover');
+    if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target) && !e.target.classList.contains('card__badge')) {
+      pop.classList.add('hidden');
+    }
+  });
+  const closePopover = $('#badgePopoverClose');
+  if (closePopover) closePopover.addEventListener('click', () => $('#badgePopover')?.classList.add('hidden'));
+
+  /* ── 토스트 ── */
+  function showToast(msg, type = 'default', duration = 2500) {
+    const container = $('#toastContainer');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast${type === 'success' ? ' toast--success' : type === 'error' ? ' toast--error' : ''}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+  }
+
+  /* ── 날짜 포맷 ── */
+  function formatDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  /* ── 상단 버튼들 ── */
+  function wireTopbarButtons(me) {
+    const authLink = $('#authLink');
+    if (authLink) {
+      authLink.textContent = 'Logout';
+      authLink.href = '#';
+      authLink.onclick = async (e) => {
+        e.preventDefault();
+        try { await j('/logout', { method: 'POST' }); } catch {}
+        location.href = 'index.html';
       };
     }
 
-  // (선택) 모달 닫기 버튼
-  const closeBtn = $('#img-close-btn');
-  if (closeBtn) {
-    closeBtn.onclick = ()=>{
-      const wrap = $('#img-modal'), img = $('#img-modal-img');
-      if (img)  img.src = '';
-      if (wrap) wrap.classList.add('hidden');
-    };
+    const excelBtn = $('#excelDownload');
+    if (excelBtn) {
+      excelBtn.onclick = async () => {
+        try {
+          const res = await fetch('/dashboard-excel', { credentials: 'include' });
+          if (!res.ok) throw new Error('실패');
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'dashboard.xlsx';
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(url);
+        } catch { alert('엑셀 다운로드 실패'); }
+      };
+    }
+
+    const regBtn = $('#registerUserBtn');
+    if (regBtn) {
+      regBtn.style.display = me.role === 'admin' ? '' : 'none';
+      if (me.role === 'admin') regBtn.onclick = () => location.href = 'register.html';
+    }
   }
-    
-  
-    tbody.innerHTML = data.map((img, idx)=>{
-      const imgUrl   = img.url || `/image/${img.id}`;
-      const imgId    = (img.url ? img.url.split('/').pop() : img.id);
-      const fullUrl  = `${location.origin}${imgUrl}`;
-      const thumbUrl = `/image/${imgId}?dashboard=1`;
-  
-      const blogHref = pickBlogUrlLite(img);
 
-  
-      return `
-        <tr data-id="${imgId}">
-          <td>
-            <img src="${thumbUrl}" alt="img" class="dashboard-img-thumb" id="thumb-${imgId}" data-img-url="${thumbUrl}">
-            <br>
-            <input type="file" id="file-${imgId}" style="display:none">
-            
-          </td>
-  
-          <!-- ✅ URL 스택: 1) 이미지 URL  2) 블로그 URL(있으면) -->
-          <td class="td-urlstack">
-            <div class="url-row">
-              <button class="dashboard-copy-btn" data-url="${fullUrl}">복사</button>
-              <a class="dashboard-url-link" href="${fullUrl}" target="_blank" title="${fullUrl}">${fullUrl}</a>
-            </div>
-            <div class="url-row">
-              ${
-                blogHref
-                  ? `<button class="dashboard-copy-btn" data-url="${blogHref}">복사</button>
-                     <a class="dashboard-blog-link" href="${blogHref}" target="_blank" title="${blogHref}">${blogHref}</a>`
-                  : `<span class="url-empty">-</span>`
-              }
-            </div>
-          </td>
-  
-          <td class="memo-td">${escapeHtml(img.memo || '-')}</td>
-          <td><button class="dashboard-btn-blue" data-detail="${idx}">보기</button></td>
-          <td><button class="dashboard-btn-red"  data-del="${imgId}">삭제</button></td>
-        </tr>`;
-    }).join('');
-  
-        // 복사 버튼 이벤트 연결
-    $$('.dashboard-copy-btn', tbody).forEach(btn=>{
-      btn.onclick = ()=>{
-        const url = btn.getAttribute('data-url');
-        if (!url) return;
-        copyText(url);  // 이미 정의된 copyText 함수 사용
-        btn.textContent = '✅';
-        setTimeout(()=> btn.textContent = '복사', 1000);
-      };
-    });
-
-    // 삭제
-    $$('.dashboard-btn-red', tbody).forEach(btn=>{
-      btn.onclick = async ()=>{
-        const id = btn.getAttribute('data-del');
-        if (!id) return;
-        if (!confirm('정말 삭제하시겠습니까?')) return;
-        try{
-          const r = await j(`/image/${id}`, { method:'DELETE' });
-          if (r?.success) btn.closest('tr')?.remove();
-        }catch{ alert('삭제 실패'); }
-      };
-    });
-    // 썸네일 미리보기
-    $$('.dashboard-img-thumb', tbody).forEach(imgEl=>{
-      imgEl.onclick = ()=>{
-        // id="thumb-<이미지ID>" 형식이므로 뒷부분만 추출
-        const m = (imgEl.id || '').match(/^thumb-(.+)$/);
-        currentImgId = m ? m[1] : null;
-    
-        openImagePreview(imgEl.dataset.imgUrl);
-      };
-    });
-    // 이미지 교체
-    $$('.dashboard-btn-blue[data-change]', tbody).forEach(btn=>{
-      btn.onclick = ()=>{
-        const id = btn.getAttribute('data-change');
-        const input = $(`#file-${id}`);
-        input.onchange = ()=> replaceImage(id);
-        input.click();
-      };
-    });
-    // 상세보기
-    $$('.dashboard-btn-blue[data-detail]', tbody).forEach(btn=>{
-      btn.onclick = ()=> openDetail(data[Number(btn.getAttribute('data-detail'))]);
-    });
+  /* ── 상세 모달 (기존 로직 재사용) ── */
+  function openDetailByImgId(imgId) {
+    const img = allImages.find(i => (i.id || (i.url||'').split('/').pop()) === imgId);
+    if (img) openDetail(img);
   }
-  
 
-  // 이미지 교체 (POST /replace-image)
-  window.replaceImage = async function(imgId){
-    const fileInput = $(`#file-${imgId}`);
-    const file = fileInput?.files?.[0];
-    if (!file) return alert('파일이 선택되지 않았습니다.');
-
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('id', imgId);
-
-    try{
-      const res = await fetch('/replace-image', { method:'POST', body: formData, credentials:'include' });
-      const data = await res.json();
-      if (data.success) {
-        const t = $(`#thumb-${imgId}`);
-        if (t) t.src = data.newUrl + `?t=${Date.now()}`;
-        alert('이미지가 성공적으로 변경되었습니다.');
-      } else {
-        alert('이미지 변경 실패: ' + (data.error||''));
-      }
-    }catch(e){ alert('서버 오류 발생'); }
-  };
-
-  // 상세 모달
-  async function openDetail(img){
-    try{
-      const detail = await j(`/image/${img.id}/detail`);
-      const modal  = $('#modal'), body = $('#modal-body');
-  
-      // ---------- 모달 열기 & 닫기 유틸 ----------
+  async function openDetail(img) {
+    const imgId = img.id || (img.url||'').split('/').pop();
+    try {
+      const detail = await j(`/image/${imgId}/detail`);
+      const modal = $('#modal'), body = $('#modal-body');
       modal.classList.remove('hidden');
-      const closeModal = ()=>{
+      const closeModal = () => {
         modal.classList.add('hidden');
         body.innerHTML = '';
-        modal.removeEventListener('click', onOverlayClick);
-        modal.removeEventListener('keydown', onKeydown);
+        modal.removeEventListener('click', onOverlay);
       };
-      const onOverlayClick = (e)=>{ if (e.target === modal) closeModal(); };
-      const onKeydown = (e)=>{ if (e.key === 'Escape') closeModal(); };
-      modal.addEventListener('click', onOverlayClick);
-      modal.setAttribute('tabindex','-1'); modal.focus();
-      modal.addEventListener('keydown', onKeydown);
-  
-      // ---------- 블로그 URL 선정(여러 케이스 지원) ----------
-      const bestBlogFromTopReferers = (top)=>{
-        if (!top || typeof top !== 'object') return null;
-        const cand = Object.entries(top).filter(([u])=>isRealBlogPost(u))
-          .sort((a,b)=>b[1]-a[1]);
-        return (cand[0] && cand[0][0]) || null;
-      };
-      const pickBlogUrl = (d)=>{
-        if (d.blogUrl) return d.blogUrl;
-        const fromTop = bestBlogFromTopReferers(d.topReferers); if (fromTop) return fromTop;
-        if (Array.isArray(d.referers)) {
-          const real = d.referers.filter(r=>isRealBlogPost(r.referer));
-          if (real.length) return real[0].referer;
+      const onOverlay = (e) => { if (e.target === modal) closeModal(); };
+      modal.addEventListener('click', onOverlay);
+
+      const bestBlog = (() => {
+        if (detail.blogUrl) return detail.blogUrl;
+        if (detail.topReferers) {
+          const best = Object.entries(detail.topReferers)
+            .filter(([u]) => isRealBlogPost(u)).sort((a,b)=>b[1]-a[1])[0];
+          return best ? best[0] : '-';
         }
         return '-';
-      };
-      const blogUrl = pickBlogUrl(detail);
-  
-      // ---------- 접속자 리스트 정규화(ips/visitors 배열/맵 모두 지원) ----------
-      const normalizeVisitors = (d)=>{
-        if (Array.isArray(d.visitors)) return d.visitors;
-        if (Array.isArray(d.ips))      return d.ips;
-  
-        const m = (d.visitors && typeof d.visitors==='object') ? d.visitors
-                : (d.ips && typeof d.ips==='object') ? d.ips : null;
-        if (!m) return [];
-        return Object.entries(m).map(([ip,v])=>({
-          ip,
-          ua: v?.ua || v?.userAgent || '-',
-          count: Number(v?.count ?? (Array.isArray(v?.visits) ? v.visits.length : 0)) || 0,
-          visits: Array.isArray(v?.visits) ? v.visits : []
-        }));
-      };
-      const visitors = normalizeVisitors(detail).sort((a,b)=>(b.count||0)-(a.count||0));
-  
-      const ipRows = visitors.map(x=>{
+      })();
+
+      const visitors = (detail.visitors || []).sort((a,b) => (b.count||0)-(a.count||0));
+      const ipRows = visitors.map(x => {
         const ipv4 = (x.ip||'').match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-        return `<tr>
-          <td class="ip-cell">${ipv4 ? ipv4[0] : escapeHtml(x.ip||'')}</td>
-          <td class="text-left">${escapeHtml(x.ua||'-')}</td>
-          <td>${x.count||0}</td>
-        </tr>`;
+        return `<tr><td class="ip-cell">${ipv4 ? ipv4[0] : escapeHtml(x.ip||'')}</td><td class="text-left">${escapeHtml(x.ua||'-')}</td><td>${x.count||0}</td></tr>`;
       }).join('');
-  
-      // ---------- 본문 렌더 ----------
+
       body.innerHTML = `
         <div class="modal-title-row-main">
-          <div class="modal-title-filename">${escapeHtml(detail.filename||'')}</div>
+          <div class="modal-title-filename">${escapeHtml(detail.filename||imgId)}</div>
           <div class="modal-actions">
             <button id="showDaily" class="dashboard-btn-blue btn-32 btn-w-96">방문일자</button>
-            <button id="downloadDetail" class="dashboard-btn-blue btn-32 btn-w-120 btn-success">엑셀 다운로드</button>
+            <button id="downloadDetail" class="dashboard-btn-blue btn-32 btn-w-120 btn-success">엑셀</button>
+            <button id="closeModal" class="dashboard-btn-blue btn-32">닫기</button>
           </div>
         </div>
-  
         <div class="modal-section">
           <div class="modal-row"><span class="modal-label">총 방문수</span><span class="modal-value">${detail.views||0}</span></div>
           <div class="modal-row"><span class="modal-label">오늘 방문</span><span class="modal-value">${detail.todayVisits||0}</span></div>
         </div>
-  
         <div class="modal-section">
           <div class="modal-row">
-            <span class="modal-label">블로그 주소</span>
-            <span class="modal-value">${blogUrl==='-'?'-':`<a href="${blogUrl}" target="_blank" class="dashboard-blog-link">${blogUrl}</a>`}</span>
+            <span class="modal-label">블로그</span>
+            <span class="modal-value">${bestBlog === '-' ? '-' : `<a href="${bestBlog}" target="_blank" class="dashboard-blog-link">${bestBlog}</a>`}</span>
           </div>
         </div>
-  
         <div class="modal-table-wrap">
           <table class="modal-table">
             <thead><tr><th>IP</th><th>User-Agent</th><th>방문수</th></tr></thead>
@@ -521,70 +682,36 @@ function renderCompactResult({ mount, imageUrl, items }) {
           </table>
         </div>
       `;
-  
-      // ---------- 방문일자 불러오기(모달 내부 스크롤) ----------
-      $('#showDaily').onclick = async ()=>{
-        const btn = $('#showDaily');
-        try{
-          const r = await j(`/image/${detail.id}/daily-visits`);
-          const rows = (r.dailyVisits||[])
-            .map(v=>`<tr><td>${v.date}</td><td>${v.count}</td></tr>`).join('');
-  
+
+      $('#closeModal').onclick = closeModal;
+
+      $('#showDaily').onclick = async () => {
+        try {
+          const r = await j(`/image/${imgId}/daily-visits`);
+          const rows = (r.dailyVisits||[]).map(v=>`<tr><td>${v.date}</td><td>${v.count}</td></tr>`).join('');
           if (!document.getElementById('daily-visits-wrap')) {
             const wrap = document.createElement('div');
-            wrap.id = 'daily-visits-wrap';
-            wrap.className = 'modal-table-wrap modal-subscroll';
-            wrap.setAttribute('data-label');
-            wrap.innerHTML = `
-              <table class="modal-table">
-                <thead><tr><th>날짜</th><th>방문수</th></tr></thead>
-                <tbody>${rows || `<tr><td colspan="2">일자별 방문 기록 없음</td></tr>`}</tbody>
-              </table>`;
+            wrap.id = 'daily-visits-wrap'; wrap.className = 'modal-table-wrap modal-subscroll';
+            wrap.innerHTML = `<table class="modal-table"><thead><tr><th>날짜</th><th>방문수</th></tr></thead><tbody>${rows||'<tr><td colspan="2">없음</td></tr>'}</tbody></table>`;
             body.appendChild(wrap);
           }
-          if (btn){ btn.disabled = true; btn.textContent = '불러옴'; }
-        }catch{
-          alert('방문일자를 불러오지 못했습니다.');
-        }
+          $('#showDaily').disabled = true; $('#showDaily').textContent = '불러옴';
+        } catch { alert('방문일자 로딩 실패'); }
       };
-  
-      // ---------- 엑셀 다운로드 ----------
-      $('#downloadDetail').onclick = async ()=>{
-        if (typeof XLSX === 'undefined'){ alert('엑셀 라이브러리가 로드되지 않았습니다.'); return; }
+
+      $('#downloadDetail').onclick = async () => {
+        if (typeof XLSX === 'undefined') { alert('엑셀 라이브러리 없음'); return; }
         let dailyVisits = [];
-        try{
-          const r = await j(`/image/${detail.id}/daily-visits`);
-          dailyVisits = r.dailyVisits || [];
-        }catch{}
-  
-        const dailySheet = [['블로그 링크','총 방문수','날짜','방문수'],
-          ...dailyVisits.map((row,i)=>[i? '' : (blogUrl||'-'), i? '' : (detail.views||0), row.date, row.count])];
-  
-        const userSheet = [['IP','User-Agent','유저 방문수','방문 시각(시:분:초)']];
-        visitors.forEach(row=>{
-          const visitTimes = (row.visits||[])
-            .map(v=>v.time ? v.time.replace('T',' ').slice(0,19) : '')
-            .filter(Boolean).join('\n');
-          userSheet.push([row.ip, row.ua, row.count, visitTimes]);
-        });
-  
+        try { const r = await j(`/image/${imgId}/daily-visits`); dailyVisits = r.dailyVisits||[]; } catch {}
         const wb = XLSX.utils.book_new();
-        const wsDaily = XLSX.utils.aoa_to_sheet(dailySheet);
-        const wsUser  = XLSX.utils.aoa_to_sheet(userSheet);
-        wsDaily['!cols'] = [{wch:60},{wch:12},{wch:14},{wch:10}];
-        wsUser['!cols']  = [{wch:18},{wch:40},{wch:10},{wch:28}];
-        XLSX.utils.book_append_sheet(wb, wsDaily, '날짜별 방문수');
-        XLSX.utils.book_append_sheet(wb, wsUser,  '유저별 상세');
-        const memoSafe = (img.memo || detail.memo || '미입력').replace(/[<>:"/\\|?*]/g,'_');
-        XLSX.writeFile(wb, `${memoSafe}.xlsx`);
+        const ws1 = XLSX.utils.aoa_to_sheet([['날짜','방문수'],...dailyVisits.map(v=>[v.date,v.count])]);
+        const ws2 = XLSX.utils.aoa_to_sheet([['IP','UA','방문수'],...visitors.map(v=>[v.ip,v.ua,v.count])]);
+        XLSX.utils.book_append_sheet(wb, ws1, '날짜별'); XLSX.utils.book_append_sheet(wb, ws2, '유저별');
+        XLSX.writeFile(wb, `${(img.memo||imgId).replace(/[<>:"/\\|?*]/g,'_')}.xlsx`);
       };
-  
-    } catch (e) {
-      console.error(e);
-      alert('상세 정보를 불러오지 못했습니다.');
-    }
+    } catch (e) { console.error(e); alert('상세 정보 로딩 실패'); }
   }
-  
+
 })();
 
 

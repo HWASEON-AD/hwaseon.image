@@ -15,6 +15,7 @@ const multer = require('multer');
 const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const ExcelJS = require('exceljs');
+const fetch = require('node-fetch');  // 블로그 HTML 서버 사이드 fetch용 (package.json에 이미 포함)
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR      = '/data';                     // Persistent Disk
 const USERS_FILE    = path.join(DATA_DIR, 'users.json');
 const IMAGES_FILE   = path.join(DATA_DIR, 'images.json');
+const BLOG_LINKS_FILE = path.join(DATA_DIR, 'blog-links.json');  // 블로그 링크 저장 파일
 const UPLOADS_DIR   = path.join(DATA_DIR, 'uploads');
 const SESSIONS_DIR  = path.join(DATA_DIR, 'sessions');
 const MAX_DAILY_TRAFFIC = 1500;                   // 이미지별 일일 제한
@@ -157,6 +159,59 @@ function isNaverBlogReferer(url) {
 function isMySiteReferer(url) {
   if (!url) return false;
   return /hwaseon-image\.com|onrender\.com/.test(url);
+}
+
+// ---- 블로그 링크 헬퍼 ---------------------------------------------------------
+// 블로그 링크 파일 읽기 (없으면 기본 구조 반환)
+function readBlogLinks() {
+  return loadJson(BLOG_LINKS_FILE, { blogLinks: [] });
+}
+// 블로그 링크 파일 쓰기
+function writeBlogLinks(data) {
+  saveJson(BLOG_LINKS_FILE, data);
+}
+
+// 네이버 블로그 HTML fetch (모바일 우선, PC fallback)
+async function fetchBlogHtml(url) {
+  // PC URL을 모바일 URL로 변환 (모바일 버전은 정적 HTML 비율이 높음)
+  const mobileUrl = url
+    .replace('https://blog.naver.com/', 'https://m.blog.naver.com/')
+    .replace('http://blog.naver.com/', 'https://m.blog.naver.com/');
+  const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' };
+  try {
+    // 모바일 버전 우선 시도
+    const res = await fetch(mobileUrl, { headers, timeout: 10000 });
+    if (res.ok) return await res.text();
+  } catch (e) {
+    // 모바일 실패 시 PC 버전으로 fallback (원인 출력)
+    console.error('[fetchBlogHtml] 모바일 fetch 실패, PC로 재시도:', e.message);
+  }
+  // PC 버전 fallback
+  const res = await fetch(url, { headers, timeout: 10000 });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+// hwaseon-image.com 이미지 ID 추출 (3가지 패턴)
+function extractHwaseonImageIds(html) {
+  const foundIds = new Set();
+  // 패턴1: /image/<id> 형태 (현재 서비스 URL 구조)
+  const p1 = /https?:\/\/hwaseon-image\.com\/image\/([a-zA-Z0-9_\-]+)/g;
+  // 패턴2: /uploads/<id>.<ext> 형태
+  const p2 = /https?:\/\/hwaseon-image\.com\/uploads\/([a-zA-Z0-9_\-]+)\.[a-zA-Z]{2,5}/g;
+  // 패턴3: 네이버 이미지 프록시(URL 인코딩)를 거친 경우
+  const p3 = /hwaseon-image\.com(?:%2F|\/)(image|uploads)(?:%2F|\/)([a-zA-Z0-9_\-]+)/g;
+  let m;
+  while ((m = p1.exec(html)) !== null) foundIds.add(m[1]);
+  while ((m = p2.exec(html)) !== null) foundIds.add(m[1]);
+  while ((m = p3.exec(html)) !== null) foundIds.add(m[2]);
+  return Array.from(foundIds);
+}
+
+// 블로그 HTML에서 <title> 추출
+function extractTitle(html) {
+  const m = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  return m ? m[1].replace(/\s+/g,' ').trim().slice(0, 100) : '';
 }
 
 // ---- Multer: 업로드는 디스크 직저장 -----------------------------------------
@@ -569,10 +624,126 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
     const imagePath = path.join(UPLOADS_DIR, target.filename);
     fs.writeFileSync(imagePath, req.file.buffer);  // 기존 파일 내용만 교체
 
+    // 교체 이력 기록 (마지막 교체 시각 + 최근 10건 히스토리)
+    target.replacedAt = new Date().toISOString();
+    if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
+    target.replaceHistory.push(new Date().toISOString());
+    if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);
+    persistImages();
+
     // 프런트에서 캐시 무력화를 원하면, /image/:id?ts=... 형태로 요청 권장.
-    res.json({ success: true, newUrl: target.url });
+    res.json({ success: true, newUrl: target.url, replacedAt: target.replacedAt });
   } catch (err) {
     res.json({ success: false, error: err.message });
+  }
+});
+
+// ---- 블로그 링크 라우트 ------------------------------------------------------
+
+// GET /blog-links — 로그인 사용자가 등록한 블로그 링크 목록
+app.get('/blog-links', (req, res) => {
+  try {
+    if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
+    const db = readBlogLinks();
+    const mine = db.blogLinks.filter(b => b.owner === req.session.user.id);
+    res.json({ success: true, blogLinks: mine });
+  } catch (e) {
+    console.error('blog-links GET error:', e);
+    res.status(500).json({ error: '서버 오류' });
+  }
+});
+
+// POST /blog-links — 블로그 URL 등록 + 즉시 스캔
+app.post('/blog-links', async (req, res) => {
+  try {
+    if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, message: 'url 필드가 필요합니다' });
+
+    // URL 형식 검사 (http/https만 허용)
+    let parsedUrl;
+    try { parsedUrl = new URL(url); } catch { return res.status(400).json({ success: false, message: '올바른 URL 형식이 아닙니다' }); }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) return res.status(400).json({ success: false, message: '올바른 URL 형식이 아닙니다' });
+
+    // 동일 owner의 동일 url 중복 확인
+    const db = readBlogLinks();
+    const isDup = db.blogLinks.some(b => b.owner === req.session.user.id && b.url === url);
+    if (isDup) return res.status(409).json({ success: false, message: '이미 등록된 URL입니다' });
+
+    // 블로그 HTML fetch + 이미지 ID 스캔
+    let html = '', title = '', foundImageIds = [], scanStatus = 'ok';
+    try {
+      html = await fetchBlogHtml(url);
+      title = extractTitle(html);
+      foundImageIds = extractHwaseonImageIds(html);
+      if (foundImageIds.length === 0) scanStatus = 'partial';  // fetch는 됐으나 이미지 미발견
+    } catch (e) {
+      console.error('fetchBlogHtml error:', e);  // 외부 URL fetch 실패
+      scanStatus = 'fetch_failed';
+    }
+
+    const now = new Date().toISOString();
+    const newLink = {
+      id: `bl_${Date.now()}`,
+      owner: req.session.user.id,
+      url,
+      title: title || url,
+      registeredAt: now,
+      lastScannedAt: now,
+      foundImageIds,
+      scanStatus
+    };
+    db.blogLinks.push(newLink);
+    writeBlogLinks(db);
+    res.json({ success: true, blogLink: newLink });
+  } catch (e) {
+    console.error('blog-links POST error:', e);
+    res.status(500).json({ error: '서버 오류' });
+  }
+});
+
+// DELETE /blog-links/:id — 본인 소유 블로그 링크 삭제
+app.delete('/blog-links/:id', (req, res) => {
+  try {
+    if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
+    const db = readBlogLinks();
+    const idx = db.blogLinks.findIndex(b => b.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: '블로그 링크를 찾을 수 없습니다' });
+    if (db.blogLinks[idx].owner !== req.session.user.id) return res.status(403).json({ error: '권한이 없습니다' });
+    db.blogLinks.splice(idx, 1);
+    writeBlogLinks(db);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('blog-links DELETE error:', e);
+    res.status(500).json({ error: '서버 오류' });
+  }
+});
+
+// POST /blog-links/:id/rescan — 등록된 블로그 링크 재스캔
+app.post('/blog-links/:id/rescan', async (req, res) => {
+  try {
+    if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
+    const db = readBlogLinks();
+    const link = db.blogLinks.find(b => b.id === req.params.id && b.owner === req.session.user.id);
+    if (!link) return res.status(404).json({ error: '블로그 링크를 찾을 수 없습니다' });
+
+    let foundImageIds = [], scanStatus = 'ok';
+    try {
+      const html = await fetchBlogHtml(link.url);
+      foundImageIds = extractHwaseonImageIds(html);
+      if (foundImageIds.length === 0) scanStatus = 'partial';
+    } catch (e) {
+      console.error('rescan fetch error:', e);  // 재스캔 fetch 실패 원인 출력
+      scanStatus = 'fetch_failed';
+    }
+    link.foundImageIds = foundImageIds;
+    link.lastScannedAt = new Date().toISOString();
+    link.scanStatus = scanStatus;
+    writeBlogLinks(db);
+    res.json({ success: true, foundImageIds, lastScannedAt: link.lastScannedAt, scanStatus });
+  } catch (e) {
+    console.error('rescan error:', e);
+    res.status(500).json({ error: '서버 오류' });
   }
 });
 
