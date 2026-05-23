@@ -31,45 +31,36 @@
       <button id="excelDownload" class="btn btn--outline">엑셀 다운로드</button>
     </div>
 
-    <!-- 블로그 URL 섹션 -->
-    <section class="blog-section" id="blogSection">
-      <div class="blog-section__header">
-        <h2 class="section-title">블로그 URL 등록</h2>
-        <button class="btn btn--ghost btn--sm" id="blogToggleBtn">접기 ▲</button>
-      </div>
-      <div class="blog-section__body" id="blogSectionBody">
-        <form class="blog-form" id="blogForm">
-          <input type="url" id="blogUrlInput" class="blog-input"
-                 placeholder="https://blog.naver.com/..." required />
-          <button type="submit" class="btn btn--primary btn--sm" id="blogSubmitBtn">등록</button>
-        </form>
-        <div class="blog-list" id="blogList"></div>
-      </div>
-    </section>
+    <!-- 블로그 검색 필터 -->
+    <div class="filter-bar">
+      <input type="text" id="blogFilterInput" class="filter-input"
+             placeholder="블로그 ID 입력 (예: siehl) — 해당 블로그에서 쓰인 이미지만 표시" />
+      <button id="blogFilterClear" class="btn btn--ghost btn--sm" style="display:none;">✕ 초기화</button>
+    </div>
 
-    <!-- 이미지 그리드 -->
+    <!-- 이미지 리스트 -->
     <section class="images-section">
       <div class="section-header">
         <h2 class="section-title">내 이미지 <span id="imageCount" class="count-badge"></span></h2>
       </div>
-      <div class="image-grid" id="imageGrid"></div>
+      <div class="image-list" id="imageGrid"></div>
     </section>
 
   </main>
 
-  <!-- 뱃지 팝오버 -->
-  <div class="badge-popover hidden" id="badgePopover">
-    <div class="badge-popover__header">
-      이 이미지를 사용 중인 블로그
-      <button id="badgePopoverClose">×</button>
+  <!-- 이미지 팝업 -->
+  <div class="img-popup hidden" id="imgPopup">
+    <div class="img-popup__backdrop" id="imgPopupBackdrop"></div>
+    <div class="img-popup__box">
+      <button class="img-popup__close" id="imgPopupClose">✕</button>
+      <img class="img-popup__img" id="imgPopupImg" alt="이미지 미리보기" />
     </div>
-    <ul class="badge-popover__list" id="badgePopoverList"></ul>
   </div>
 
   <!-- 토스트 컨테이너 -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- 상세 모달 (기존 유지) -->
+  <!-- 상세 모달 -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">
       <div id="modal-body"></div>

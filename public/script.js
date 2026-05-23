@@ -228,18 +228,16 @@ function renderCompactResult({ mount, imageUrl, items }) {
 
 /** =========================================================
  *  대시보드 페이지(dashboard.html)
- *  - 목록/썸네일/메모/소유자/복사/삭제/자세히 보기/이미지 교체
- *  - 엑셀 다운로드
- *  - 모든 인라인 스타일 제거, CSS 클래스로 이관
+ *  - 수평 행 리스트, 블로그 필터(topReferers 클라이언트 필터링)
+ *  - 이미지 팝업, URL 복사, 교체/삭제/상세, 엑셀 다운로드
  * ======================================================= */
 (function initDashboardPage(){
   const grid = $('#imageGrid');
   if (!grid) return;
 
   let allImages = [];
-  let allBlogLinks = [];
+  let filterValue = '';
 
-  // 초기화
   (async function init(){
     try {
       const me = await j('/me');
@@ -248,112 +246,121 @@ function renderCompactResult({ mount, imageUrl, items }) {
       const whoami = $('#whoami');
       if (whoami) whoami.textContent = me.role === 'admin' ? `관리자 ${me.id}` : me.id;
 
-      const [images, blogData] = await Promise.all([
-        j('/dashboard-data'),
-        j('/blog-links').catch(() => ({ blogLinks: [] }))
-      ]);
-
+      const images = await j('/dashboard-data');
       allImages = images.sort((a,b) => Number(b.id||0) - Number(a.id||0));
-      allBlogLinks = blogData.blogLinks || [];
 
-      renderImageGrid();
-      renderBlogList();
+      renderImageList();
       wireTopbarButtons(me);
-      wireBlogForm();
+      wireBlogFilter();
+      wireImagePopup();
     } catch (e) {
       if (e?.status === 401) location.href = 'login.html';
       else { console.error(e); alert('대시보드를 불러오지 못했습니다.'); }
     }
   })();
 
-  /* ── 헬퍼: 이미지ID → 사용 블로그 배열 맵 ── */
-  function buildUsedMap(blogLinks) {
-    const map = {};
-    for (const bl of blogLinks) {
-      for (const id of (bl.foundImageIds || [])) {
-        if (!map[id]) map[id] = [];
-        map[id].push(bl);
-      }
+  /* ── 블로그 필터 ── */
+  function wireBlogFilter() {
+    const input = $('#blogFilterInput');
+    const clearBtn = $('#blogFilterClear');
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+      filterValue = input.value.trim();
+      if (clearBtn) clearBtn.style.display = filterValue ? '' : 'none';
+      renderImageList();
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        input.value = '';
+        filterValue = '';
+        clearBtn.style.display = 'none';
+        renderImageList();
+      });
     }
-    return map;
   }
 
-  /* ── 이미지 그리드 렌더 ── */
-  function renderImageGrid() {
-    const usedMap = buildUsedMap(allBlogLinks);
+  /* ── 이미지 팝업 ── */
+  function wireImagePopup() {
+    const popup = $('#imgPopup');
+    const backdrop = $('#imgPopupBackdrop');
+    const closeBtn = $('#imgPopupClose');
+    const img = $('#imgPopupImg');
+    if (!popup) return;
+
+    const closePopup = () => {
+      popup.classList.add('hidden');
+      if (img) img.src = '';
+    };
+    if (backdrop) backdrop.addEventListener('click', closePopup);
+    if (closeBtn) closeBtn.addEventListener('click', closePopup);
+  }
+
+  function openImagePopup(imgUrl) {
+    const popup = $('#imgPopup');
+    const img = $('#imgPopupImg');
+    if (!popup || !img) return;
+    img.src = imgUrl;
+    popup.classList.remove('hidden');
+  }
+
+  /* ── 필터 적용 이미지 목록 ── */
+  function filteredImages() {
+    if (!filterValue) return allImages;
+    const q = filterValue.toLowerCase();
+    return allImages.filter(img => {
+      const tr = img.topReferers;
+      if (!tr || typeof tr !== 'object') return false;
+      return Object.keys(tr).some(k => k.toLowerCase().includes(q));
+    });
+  }
+
+  /* ── 이미지 행 렌더 ── */
+  function renderImageList() {
+    const images = filteredImages();
     const count = $('#imageCount');
-    if (count) count.textContent = `(${allImages.length}개)`;
+    if (count) count.textContent = `(${images.length}개)`;
 
     grid.innerHTML = '';
-    for (const img of allImages) {
+
+    for (const img of images) {
       const imgId = img.id || (img.url || '').split('/').pop();
       const imgUrl = img.url || `/image/${imgId}`;
       const fullUrl = `${location.origin}${imgUrl}`;
-      const thumbUrl = `/image/${imgId}?dashboard=1`;
-      const usedInBlogs = usedMap[imgId] || [];
       const memo = img.memo || '';
       const replacedAt = img.replacedAt ? `마지막 교체: ${formatDate(img.replacedAt)}` : '';
 
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.dataset.imageId = imgId;
-      card.innerHTML = `
-        <div class="card__thumb-wrap" data-img-url="${thumbUrl}" data-img-id="${imgId}">
-          <div class="card__placeholder" id="placeholder-${imgId}">
-            <button class="card__view-btn" data-img-id="${imgId}">🖼 이미지 보기</button>
-          </div>
-          <img class="card__thumb hidden" id="thumb-${imgId}" alt="${escapeHtml(memo)}" />
-          ${usedInBlogs.length ? `<button class="card__badge" data-img-id="${imgId}">블로그 사용 중</button>` : ''}
+      const row = document.createElement('div');
+      row.className = 'img-row';
+      row.dataset.imageId = imgId;
+      row.innerHTML = `
+        <button class="row__view" data-img-id="${imgId}">이미지 보기</button>
+        <span class="row__url" data-url="${escapeHtml(fullUrl)}" title="${escapeHtml(fullUrl)}">${escapeHtml(fullUrl)}</span>
+        <span class="row__memo" title="${escapeHtml(memo)}">${escapeHtml(memo)}</span>
+        <span class="row__replaced">${replacedAt}</span>
+        <div class="row__actions">
+          <button class="btn btn--xs btn--primary row__replace" data-img-id="${imgId}">교체</button>
+          <button class="btn btn--xs btn--outline row__detail" data-img-id="${imgId}">상세 보기</button>
+          <button class="btn btn--xs btn--danger row__delete" data-img-id="${imgId}">삭제</button>
         </div>
-        <div class="card__body">
-          ${memo ? `<div class="card__memo">${escapeHtml(memo)}</div>` : ''}
-          ${replacedAt ? `<div class="card__replaced">${replacedAt}</div>` : ''}
-          <div class="card__actions">
-            <button class="btn btn--xs btn--outline card__copy card__btn-equal" data-url="${fullUrl}">URL 복사</button>
-            <button class="btn btn--xs btn--outline card__detail card__btn-equal" data-img-id="${imgId}">상세 보기</button>
-          </div>
-          <div class="card__actions" style="margin-top:2px;">
-            <button class="btn btn--xs btn--primary card__replace card__btn-equal" data-img-id="${imgId}">교체</button>
-            <button class="btn btn--xs btn--danger card__delete card__btn-equal" data-img-id="${imgId}">삭제</button>
-          </div>
-          <input type="file" class="card__file-input" accept="image/*" data-img-id="${imgId}" />
-        </div>
+        <input type="file" class="row__file-input hidden" accept="image/*" data-img-id="${imgId}" />
       `;
-      grid.appendChild(card);
+      grid.appendChild(row);
     }
 
-    // 이벤트: 이미지 보기 버튼 → 인라인 로딩
-    $$('.card__view-btn', grid).forEach(btn => {
-      btn.addEventListener('click', () => {
-        const imgId = btn.dataset.imgId;
-        const placeholder = $(`#placeholder-${imgId}`);
-        const thumb = $(`#thumb-${imgId}`);
-        if (!thumb || !placeholder) return;
-        thumb.src = `/image/${imgId}?dashboard=1`;
-        thumb.classList.remove('hidden');
-        placeholder.classList.add('hidden');
-      });
+    // 이미지 보기 → 팝업
+    $$('.row__view', grid).forEach(btn => {
+      btn.addEventListener('click', () => openImagePopup(`/image/${btn.dataset.imgId}`));
     });
 
-    // 이벤트: 로딩된 썸네일 클릭 → 상세 모달
-    $$('.card__thumb-wrap', grid).forEach(wrap => {
-      wrap.addEventListener('click', (e) => {
-        if (e.target.classList.contains('card__badge')) return;
-        if (e.target.classList.contains('card__view-btn')) return;
-        const imgId = wrap.dataset.imgId;
-        const thumb = $(`#thumb-${imgId}`);
-        if (thumb && !thumb.classList.contains('hidden')) openDetailByImgId(imgId);
-      });
-    });
-
-    // 이벤트: URL 복사
-    $$('.card__copy', grid).forEach(btn => {
-      btn.addEventListener('click', () => {
-        const url = btn.dataset.url;
+    // URL 클릭 → 복사
+    $$('.row__url', grid).forEach(el => {
+      el.addEventListener('click', () => {
+        const url = el.dataset.url;
         navigator.clipboard.writeText(url).then(() => {
-          const old = btn.textContent;
-          btn.textContent = '복사됨!';
-          setTimeout(() => btn.textContent = old, 1500);
+          el.classList.add('copied');
+          setTimeout(() => el.classList.remove('copied'), 1500);
         }).catch(() => {
           const ta = document.createElement('textarea');
           ta.value = url; document.body.appendChild(ta); ta.select();
@@ -363,49 +370,37 @@ function renderCompactResult({ mount, imageUrl, items }) {
       });
     });
 
-    // 이벤트: 이미지 교체
-    $$('.card__replace', grid).forEach(btn => {
+    // 교체
+    $$('.row__replace', grid).forEach(btn => {
       btn.addEventListener('click', () => {
         const imgId = btn.dataset.imgId;
-        const fileInput = grid.querySelector(`.card__file-input[data-img-id="${imgId}"]`);
+        const fileInput = grid.querySelector(`.row__file-input[data-img-id="${imgId}"]`);
         if (!fileInput) return;
         fileInput.onchange = () => doReplaceImage(imgId, fileInput);
         fileInput.click();
       });
     });
 
-    // 이벤트: 상세
-    $$('.card__detail', grid).forEach(btn => {
+    // 상세 보기
+    $$('.row__detail', grid).forEach(btn => {
       btn.addEventListener('click', () => openDetailByImgId(btn.dataset.imgId));
     });
 
-    // 이벤트: 삭제
-    $$('.card__delete', grid).forEach(btn => {
+    // 삭제
+    $$('.row__delete', grid).forEach(btn => {
       btn.addEventListener('click', async () => {
         const imgId = btn.dataset.imgId;
         if (!confirm('이미지를 삭제하시겠습니까?')) return;
         try {
           const r = await j(`/image/${imgId}`, { method: 'DELETE' });
           if (r?.success) {
-            const card = grid.querySelector(`.card[data-image-id="${imgId}"]`);
-            if (card) card.remove();
+            grid.querySelector(`.img-row[data-image-id="${imgId}"]`)?.remove();
             allImages = allImages.filter(i => (i.id || (i.url||'').split('/').pop()) !== imgId);
             const count = $('#imageCount');
-            if (count) count.textContent = `(${allImages.length}개)`;
+            if (count) count.textContent = `(${filteredImages().length}개)`;
             showToast('삭제됐습니다.', 'success');
           }
         } catch { showToast('삭제 실패', 'error'); }
-      });
-    });
-
-    // 이벤트: 뱃지 클릭
-    $$('.card__badge', grid).forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const imgId = btn.dataset.imgId;
-        const usedMap = buildUsedMap(allBlogLinks);
-        const blogs = usedMap[imgId] || [];
-        showBadgePopover(btn, blogs);
       });
     });
   }
@@ -421,20 +416,14 @@ function renderCompactResult({ mount, imageUrl, items }) {
       const res = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
       const data = await res.json();
       if (data.success) {
-        const thumb = $(`#thumb-${imgId}`);
-        // 이미지가 이미 로딩된 상태면 src 갱신, 아직 안 보이면 placeholder 유지
-        if (thumb && !thumb.classList.contains('hidden')) thumb.src = data.newUrl + `?t=${Date.now()}`;
-        // replacedAt 표시 갱신
-        const card = grid.querySelector(`.card[data-image-id="${imgId}"]`);
-        if (card && data.replacedAt) {
-          let replaced = card.querySelector('.card__replaced');
-          if (!replaced) {
-            replaced = document.createElement('div');
-            replaced.className = 'card__replaced';
-            const body = card.querySelector('.card__body');
-            if (body) body.insertBefore(replaced, body.querySelector('.card__actions'));
+        if (data.replacedAt) {
+          const row = grid.querySelector(`.img-row[data-image-id="${imgId}"]`);
+          if (row) {
+            const replaced = row.querySelector('.row__replaced');
+            if (replaced) replaced.textContent = `마지막 교체: ${formatDate(data.replacedAt)}`;
           }
-          replaced.textContent = `마지막 교체: ${formatDate(data.replacedAt)}`;
+          const imgObj = allImages.find(i => (i.id || (i.url||'').split('/').pop()) === imgId);
+          if (imgObj) imgObj.replacedAt = data.replacedAt;
         }
         showToast('이미지가 교체됐습니다.', 'success');
       } else {
@@ -443,147 +432,6 @@ function renderCompactResult({ mount, imageUrl, items }) {
     } catch { showToast('서버 오류 발생', 'error'); }
     fileInput.value = '';
   }
-
-  /* ── 블로그 목록 렌더 ── */
-  function renderBlogList() {
-    const blogList = $('#blogList');
-    if (!blogList) return;
-    if (!allBlogLinks.length) {
-      blogList.innerHTML = '<p style="font-size:13px;color:#9e9e9e;padding:6px 0;">등록된 블로그가 없습니다.</p>';
-      return;
-    }
-    blogList.innerHTML = '';
-    for (const bl of allBlogLinks) {
-      const item = document.createElement('div');
-      item.className = 'blog-item';
-      item.dataset.blogId = bl.id;
-      const shortUrl = bl.url.replace(/^https?:\/\//, '').slice(0, 60);
-      const meta = `이미지 ${bl.foundImageIds?.length || 0}개 · 마지막 스캔: ${formatDate(bl.lastScannedAt)}`;
-      item.innerHTML = `
-        <div class="blog-item__info">
-          <div class="blog-item__url" title="${escapeHtml(bl.url)}">${escapeHtml(shortUrl)}</div>
-          <div class="blog-item__meta">${meta}${bl.scanStatus === 'partial' ? ' (이미지 미감지)' : bl.scanStatus === 'fetch_failed' ? ' (스캔 실패)' : ''}</div>
-        </div>
-        <div class="blog-item__actions">
-          <button class="btn btn--ghost btn--xs blog-rescan" data-blog-id="${bl.id}">재스캔</button>
-          <button class="btn btn--danger btn--xs blog-delete" data-blog-id="${bl.id}">삭제</button>
-        </div>
-      `;
-      blogList.appendChild(item);
-    }
-
-    $$('.blog-rescan', blogList).forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const blogId = btn.dataset.blogId;
-        btn.textContent = '스캔 중...'; btn.disabled = true;
-        try {
-          const r = await j(`/blog-links/${blogId}/rescan`, { method: 'POST' });
-          const bl = allBlogLinks.find(b => b.id === blogId);
-          if (bl) {
-            bl.foundImageIds = r.foundImageIds;
-            bl.lastScannedAt = r.lastScannedAt;
-            bl.scanStatus = r.scanStatus;
-          }
-          renderBlogList();
-          renderImageGrid();
-          showToast('재스캔 완료', 'success');
-        } catch { showToast('재스캔 실패', 'error'); btn.textContent = '재스캔'; btn.disabled = false; }
-      });
-    });
-
-    $$('.blog-delete', blogList).forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const blogId = btn.dataset.blogId;
-        if (!confirm('블로그 URL을 삭제하시겠습니까?')) return;
-        try {
-          await j(`/blog-links/${blogId}`, { method: 'DELETE' });
-          allBlogLinks = allBlogLinks.filter(b => b.id !== blogId);
-          renderBlogList();
-          renderImageGrid();
-          showToast('삭제됐습니다.', 'success');
-        } catch { showToast('삭제 실패', 'error'); }
-      });
-    });
-  }
-
-  /* ── 블로그 폼 ── */
-  function wireBlogForm() {
-    const form = $('#blogForm');
-    const input = $('#blogUrlInput');
-    const submitBtn = $('#blogSubmitBtn');
-    if (!form) return;
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const url = (input?.value || '').trim();
-      if (!url) return;
-      submitBtn.textContent = '등록 중...'; submitBtn.disabled = true;
-      try {
-        const r = await j('/blog-links', {
-          method: 'POST',
-          body: JSON.stringify({ url })
-        });
-        if (r.success) {
-          allBlogLinks.push(r.blogLink);
-          renderBlogList();
-          renderImageGrid();
-          input.value = '';
-          const msg = r.blogLink.scanStatus === 'ok'
-            ? `등록됨 — 이미지 ${r.blogLink.foundImageIds?.length || 0}개 감지`
-            : r.blogLink.scanStatus === 'partial'
-              ? '등록됨 — 이미지 자동 감지 실패 (동적 렌더링 가능성)'
-              : '등록됨 — 블로그 스캔 실패';
-          showToast(msg, r.blogLink.scanStatus === 'ok' ? 'success' : 'default');
-        } else {
-          showToast(r.message || '등록 실패', 'error');
-        }
-      } catch (e) {
-        showToast(e?.body?.message || '등록 실패', 'error');
-      }
-      submitBtn.textContent = '등록'; submitBtn.disabled = false;
-    });
-
-    const toggleBtn = $('#blogToggleBtn');
-    const body = $('#blogSectionBody');
-    if (toggleBtn && body) {
-      toggleBtn.addEventListener('click', () => {
-        const isOpen = body.style.display !== 'none';
-        body.style.display = isOpen ? 'none' : '';
-        toggleBtn.textContent = isOpen ? '펼치기 ▼' : '접기 ▲';
-      });
-    }
-  }
-
-  /* ── 뱃지 팝오버 ── */
-  function showBadgePopover(anchorEl, blogs) {
-    const pop = $('#badgePopover');
-    const list = $('#badgePopoverList');
-    if (!pop || !list) return;
-    list.innerHTML = blogs.map(bl => `
-      <li class="badge-popover__item">
-        <a class="badge-popover__link" href="${escapeHtml(bl.url)}" target="_blank" title="${escapeHtml(bl.url)}">
-          ${escapeHtml(bl.url.replace(/^https?:\/\//,'').slice(0,50))}
-        </a>
-        <a href="${escapeHtml(bl.url)}" target="_blank" style="font-size:12px;color:var(--brand);flex-shrink:0;">열기 ↗</a>
-      </li>
-    `).join('');
-    pop.classList.remove('hidden');
-    // 위치 계산
-    const rect = anchorEl.getBoundingClientRect();
-    const popW = 280;
-    let left = rect.right + 8;
-    if (left + popW > window.innerWidth) left = rect.left - popW - 8;
-    pop.style.left = Math.max(8, left) + 'px';
-    pop.style.top = Math.max(8, rect.top) + 'px';
-  }
-
-  document.addEventListener('click', (e) => {
-    const pop = $('#badgePopover');
-    if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target) && !e.target.classList.contains('card__badge')) {
-      pop.classList.add('hidden');
-    }
-  });
-  const closePopover = $('#badgePopoverClose');
-  if (closePopover) closePopover.addEventListener('click', () => $('#badgePopover')?.classList.add('hidden'));
 
   /* ── 토스트 ── */
   function showToast(msg, type = 'default', duration = 2500) {
@@ -640,7 +488,7 @@ function renderCompactResult({ mount, imageUrl, items }) {
     }
   }
 
-  /* ── 상세 모달 (기존 로직 재사용) ── */
+  /* ── 상세 모달 ── */
   function openDetailByImgId(imgId) {
     const img = allImages.find(i => (i.id || (i.url||'').split('/').pop()) === imgId);
     if (img) openDetail(img);
