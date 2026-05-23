@@ -299,7 +299,10 @@ function renderCompactResult({ mount, imageUrl, items }) {
       card.dataset.imageId = imgId;
       card.innerHTML = `
         <div class="card__thumb-wrap" data-img-url="${thumbUrl}" data-img-id="${imgId}">
-          <img class="card__thumb" id="thumb-${imgId}" src="${thumbUrl}" alt="${escapeHtml(memo)}" loading="lazy" />
+          <div class="card__placeholder" id="placeholder-${imgId}">
+            <button class="card__view-btn" data-img-id="${imgId}">🖼 이미지 보기</button>
+          </div>
+          <img class="card__thumb hidden" id="thumb-${imgId}" alt="${escapeHtml(memo)}" />
           ${usedInBlogs.length ? `<button class="card__badge" data-img-id="${imgId}">블로그 사용 중</button>` : ''}
         </div>
         <div class="card__body">
@@ -319,11 +322,27 @@ function renderCompactResult({ mount, imageUrl, items }) {
       grid.appendChild(card);
     }
 
-    // 이벤트: 썸네일 클릭 → 상세 모달
+    // 이벤트: 이미지 보기 버튼 → 인라인 로딩
+    $$('.card__view-btn', grid).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const imgId = btn.dataset.imgId;
+        const placeholder = $(`#placeholder-${imgId}`);
+        const thumb = $(`#thumb-${imgId}`);
+        if (!thumb || !placeholder) return;
+        thumb.src = `/image/${imgId}?dashboard=1`;
+        thumb.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+      });
+    });
+
+    // 이벤트: 로딩된 썸네일 클릭 → 상세 모달
     $$('.card__thumb-wrap', grid).forEach(wrap => {
       wrap.addEventListener('click', (e) => {
         if (e.target.classList.contains('card__badge')) return;
-        openDetailByImgId(wrap.dataset.imgId);
+        if (e.target.classList.contains('card__view-btn')) return;
+        const imgId = wrap.dataset.imgId;
+        const thumb = $(`#thumb-${imgId}`);
+        if (thumb && !thumb.classList.contains('hidden')) openDetailByImgId(imgId);
       });
     });
 
@@ -403,7 +422,8 @@ function renderCompactResult({ mount, imageUrl, items }) {
       const data = await res.json();
       if (data.success) {
         const thumb = $(`#thumb-${imgId}`);
-        if (thumb) thumb.src = data.newUrl + `?t=${Date.now()}`;
+        // 이미지가 이미 로딩된 상태면 src 갱신, 아직 안 보이면 placeholder 유지
+        if (thumb && !thumb.classList.contains('hidden')) thumb.src = data.newUrl + `?t=${Date.now()}`;
         // replacedAt 표시 갱신
         const card = grid.querySelector(`.card[data-image-id="${imgId}"]`);
         if (card && data.replacedAt) {
