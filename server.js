@@ -16,7 +16,6 @@ const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const ExcelJS = require('exceljs');
 const fetch = require('node-fetch');  // 블로그 HTML 서버 사이드 fetch용 (package.json에 이미 포함)
-const sharp = require('sharp');       // 모바일 자동 리사이즈용
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -362,7 +361,7 @@ app.post('/upload', uploadDisk.single('image'), (req, res) => {
 });
 
 // 이미지 제공(집계/캐시 포함)
-app.get('/image/:id', async (req, res) => {
+app.get('/image/:id', (req, res) => {
   const id = (req.params.id || '').replace(/\.[^/.]+$/,''); // 확장자 붙여도 허용
   const img = images.find(i => i.id === id);
   if (!img) return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
@@ -374,8 +373,6 @@ app.get('/image/:id', async (req, res) => {
   }
   img.todayCount = (img.todayCount || 0) + 1;
 
-  const ua = req.headers['user-agent'] || '';
-  const isMobile = /Mobile|Android|iPhone|iPad|iPod/i.test(ua);
   const filePath = path.join(UPLOADS_DIR, img.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: '이미지 파일을 찾을 수 없습니다.' });
 
@@ -431,27 +428,13 @@ app.get('/image/:id', async (req, res) => {
   // 캐시 헤더(교체를 고려하여 짧게)
   const stat = fs.statSync(filePath);
   res.set('Last-Modified', stat.mtime.toUTCString());
-  res.set('ETag', `${stat.ino}-${stat.mtimeMs}-${stat.size}${isMobile?'-m':''}`);
+  res.set('ETag', `${stat.ino}-${stat.mtimeMs}-${stat.size}`);
   res.set('Cache-Control', 'public, max-age=600, must-revalidate'); // 10분
 
   // Content-Type
   const ext = path.extname(img.filename).toLowerCase();
   const map = { '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.png':'image/png', '.gif':'image/gif', '.webp':'image/webp' };
-  const contentType = map[ext] || 'application/octet-stream';
-  res.set('Content-Type', contentType);
-
-  // 모바일: 이미지 3배 확대 후 전송
-  if (isMobile && (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp')) {
-    try {
-      const metadata = await sharp(filePath).metadata();
-      const buf = await sharp(filePath)
-        .resize(metadata.width * 3, metadata.height * 3, { kernel: sharp.kernel.lanczos3 })
-        .toBuffer();
-      return res.send(buf);
-    } catch (e) {
-      console.error('sharp resize error:', e);
-    }
-  }
+  res.set('Content-Type', map[ext] || 'application/octet-stream');
 
   res.sendFile(filePath);
 });
