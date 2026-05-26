@@ -55,8 +55,10 @@ ensureDir(SESSIONS_DIR);
 
 // Pretendard 폰트 등록
 try {
-  GlobalFonts.registerFromPath(path.join(__dirname, 'fonts', 'Pretendard-Medium.ttf'), 'Pretendard');
-  console.log('[font] Pretendard-Medium 등록 완료');
+  const fontPath = path.join(__dirname, 'fonts', 'Pretendard-Medium.ttf');
+  const fontBuffer = fs.readFileSync(fontPath);
+  GlobalFonts.register(fontBuffer, 'Pretendard');
+  console.log('[font] Pretendard-Medium 등록 완료, size:', fontBuffer.length);
 } catch (e) {
   console.error('[font] Pretendard 등록 실패:', e.message);
 }
