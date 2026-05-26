@@ -591,58 +591,56 @@ function renderCompactResult({ mount, imageUrl, items }) {
     }
   }
 
-  // 모달 이벤트 바인딩 (DOM 준비 후 1회)
-  document.addEventListener('DOMContentLoaded', () => {
-    $('#replaceModalClose')?.addEventListener('click', closeReplaceModal);
-    $('#replaceModal')?.addEventListener('click', e => { if (e.target === $('#replaceModal')) closeReplaceModal(); });
-    $('#replaceTabImage')?.addEventListener('click', () => showReplaceTab('image'));
-    $('#replaceTabText')?.addEventListener('click',  () => showReplaceTab('text'));
+  // 모달 이벤트 바인딩 (스크립트가 body 최하단에서 실행되므로 DOM 이미 준비됨)
+  $('#replaceModalClose')?.addEventListener('click', closeReplaceModal);
+  $('#replaceModal')?.addEventListener('click', e => { if (e.target === $('#replaceModal')) closeReplaceModal(); });
+  $('#replaceTabImage')?.addEventListener('click', () => showReplaceTab('image'));
+  $('#replaceTabText')?.addEventListener('click',  () => showReplaceTab('text'));
 
-    $('#replaceNoBg')?.addEventListener('change', e => {
-      $('#replaceBgColor').disabled = e.target.checked;
-    });
+  $('#replaceNoBg')?.addEventListener('change', e => {
+    $('#replaceBgColor').disabled = e.target.checked;
+  });
 
-    $('#replaceFileInput')?.addEventListener('change', e => {
-      const file = e.target.files[0];
-      $('#replaceFileSpan').textContent = file ? file.name : '📁 이미지 선택';
-      $('#replaceImageSubmit').disabled = !file;
-    });
+  $('#replaceFileInput')?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    $('#replaceFileSpan').textContent = file ? file.name : '📁 이미지 선택';
+    $('#replaceImageSubmit').disabled = !file;
+  });
 
-    $('#replaceImageSubmit')?.addEventListener('click', async () => {
-      const file = $('#replaceFileInput').files[0];
-      if (!file || !replaceTargetId) return;
+  $('#replaceImageSubmit')?.addEventListener('click', async () => {
+    const file = $('#replaceFileInput').files[0];
+    if (!file || !replaceTargetId) return;
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('id', replaceTargetId);
+    try {
+      const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
+      afterReplace(data, '이미지가');
+    } catch (err) { showToast('오류: ' + (err?.message || '서버 오류'), 'error'); }
+  });
+
+  $('#replaceTextSubmit')?.addEventListener('click', async () => {
+    const text = $('#replaceTextInput').value;
+    if (!text.trim()) { showToast('텍스트를 입력하세요.', 'error'); return; }
+    if (!replaceTargetId) return;
+    const btn = $('#replaceTextSubmit');
+    btn.disabled = true; btn.textContent = '생성 중…';
+    try {
+      const blob = await renderTextToBlob({
+        text,
+        fontSize : $('#replaceFontSize').value,
+        color    : $('#replaceTextColor').value,
+        bgColor  : $('#replaceNoBg').checked ? '' : $('#replaceBgColor').value
+      });
       const fd = new FormData();
-      fd.append('image', file);
+      fd.append('image', blob, 'text-image.png');
       fd.append('id', replaceTargetId);
-      try {
-        const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
-        const data = await res.json();
-        afterReplace(data, '이미지가');
-      } catch { showToast('서버 오류 발생', 'error'); }
-    });
-
-    $('#replaceTextSubmit')?.addEventListener('click', async () => {
-      const text = $('#replaceTextInput').value;
-      if (!text.trim()) { showToast('텍스트를 입력하세요.', 'error'); return; }
-      if (!replaceTargetId) return;
-      const btn = $('#replaceTextSubmit');
-      btn.disabled = true; btn.textContent = '생성 중…';
-      try {
-        const blob = await renderTextToBlob({
-          text,
-          fontSize : $('#replaceFontSize').value,
-          color    : $('#replaceTextColor').value,
-          bgColor  : $('#replaceNoBg').checked ? '' : $('#replaceBgColor').value
-        });
-        const fd = new FormData();
-        fd.append('image', blob, 'text-image.png');
-        fd.append('id', replaceTargetId);
-        const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
-        const data = await res.json();
-        afterReplace(data, '텍스트로');
-      } catch { showToast('서버 오류 발생', 'error'); }
-      finally { btn.disabled = false; btn.textContent = '교체'; }
-    });
+      const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
+      afterReplace(data, '텍스트로');
+    } catch (err) { showToast('오류: ' + (err?.message || '서버 오류'), 'error'); }
+    finally { btn.disabled = false; btn.textContent = '교체'; }
   });
 
   /* ── 이미지 교체 (레거시, 미사용) ── */
