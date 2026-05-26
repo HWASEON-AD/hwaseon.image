@@ -195,21 +195,6 @@ async function renderTextToBlob({ text, fontSize, color, bgColor }) {
       tc.font = `500 ${sz}px Pretendard`;
       if (lines.every(l => tc.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
     }
-    // 28px로도 안 맞으면 자동 줄바꿈
-    tc.font = `500 ${finalSize}px Pretendard`;
-    if (!lines.every(l => tc.measureText(l || ' ').width <= maxW)) {
-      const wrappedLines = [];
-      for (const line of lines) {
-        if (tc.measureText(line || ' ').width <= maxW) { wrappedLines.push(line); continue; }
-        let cur = '';
-        for (const ch of line.split('')) {
-          if (tc.measureText(cur + ch).width > maxW) { wrappedLines.push(cur); cur = ch; }
-          else cur += ch;
-        }
-        if (cur) wrappedLines.push(cur);
-      }
-      lines.splice(0, lines.length, ...wrappedLines);
-    }
   } else {
     finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
   }
