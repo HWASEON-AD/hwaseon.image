@@ -28,11 +28,18 @@
   <!-- 메인 -->
   <main class="container section">
     <div class="intro">
-      <h1 class="intro__title">이미지 업로드</h1>
-      <p class="intro__sub">1개의 이미지와 메모로 공유 URL을 생성하세요.</p>
+      <h1 class="intro__title">업로드</h1>
+      <p class="intro__sub">이미지 또는 텍스트로 공유 URL을 생성하세요.</p>
     </div>
 
-    <section class="card">
+    <!-- 탭 -->
+    <div class="upload-tabs">
+      <button class="upload-tab upload-tab--active" id="tabImage" type="button">이미지 업로드</button>
+      <button class="upload-tab" id="tabText" type="button">텍스트 이미지</button>
+    </div>
+
+    <!-- 이미지 업로드 폼 -->
+    <section class="card" id="imageCard">
       <form id="uploadForm" enctype="multipart/form-data" class="upload-form">
     
         <!-- 섹션 1 : 이미지 선택 -->
@@ -60,7 +67,60 @@
         </div>
       </form>
     </section>
-    
+
+    <!-- 텍스트 이미지 폼 -->
+    <section class="card hidden" id="textCard">
+      <form id="textForm">
+
+        <div class="form-section">
+          <div class="form-label">TEXT</div>
+          <textarea id="textInput" class="text-textarea" rows="5"
+            placeholder="텍스트를 입력하세요&#10;Enter로 줄바꿈 가능"></textarea>
+        </div>
+
+        <div class="form-section">
+          <div class="form-label">OPTIONS</div>
+          <div class="text-opts">
+            <div class="text-opt-row">
+              <span class="text-opt-label">폰트 크기</span>
+              <select id="fontSizeSelect" class="text-opt-select">
+                <option value="auto" selected>자동</option>
+                <option value="16">16</option>
+                <option value="20">20</option>
+                <option value="24">24</option>
+                <option value="32">32</option>
+                <option value="40">40</option>
+                <option value="48">48</option>
+                <option value="60">60</option>
+                <option value="72">72</option>
+              </select>
+            </div>
+            <div class="text-opt-row">
+              <span class="text-opt-label">글자 색</span>
+              <input type="color" id="textColorPicker" value="#333333" class="text-opt-color" />
+            </div>
+            <div class="text-opt-row">
+              <span class="text-opt-label">배경 색</span>
+              <input type="color" id="bgColorPicker" value="#ffffff" class="text-opt-color" />
+              <label class="text-opt-nobg">
+                <input type="checkbox" id="noBgCheck" /> 배경 없음
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-label">MEMO</div>
+          <div class="control input form-row">
+            <input id="textMemoInput" type="text" placeholder="메모 입력" />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn--dark">이미지 생성</button>
+        </div>
+      </form>
+    </section>
 
     <!-- 업로드 결과 -->
     <section id="result" class="result" style="display:none;"></section>

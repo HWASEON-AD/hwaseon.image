@@ -161,6 +161,92 @@ window.copyText = async function(text){
   };
 })();
 
+/** =========================================================
+ *  텍스트 → 이미지 생성 탭
+ * ======================================================= */
+(function initTextImagePage() {
+  const textCard  = $('#textCard');
+  if (!textCard) return;
+
+  const tabImage  = $('#tabImage');
+  const tabText   = $('#tabText');
+  const imageCard = $('#imageCard');
+  const resultDiv = $('#result');
+
+  function showTab(which) {
+    const isText = (which === 'text');
+    tabText.classList.toggle('upload-tab--active', isText);
+    tabImage.classList.toggle('upload-tab--active', !isText);
+    textCard.classList.toggle('hidden', !isText);
+    imageCard.classList.toggle('hidden', isText);
+    if (resultDiv) resultDiv.style.display = 'none';
+  }
+
+  tabImage.onclick = () => showTab('image');
+  tabText.onclick  = () => showTab('text');
+
+  // 배경 없음 체크 → 색상 피커 비활성화
+  const noBgCheck     = $('#noBgCheck');
+  const bgColorPicker = $('#bgColorPicker');
+  noBgCheck.onchange  = () => { bgColorPicker.disabled = noBgCheck.checked; };
+
+  // 폼 제출
+  $('#textForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const text = $('#textInput').value;
+    if (!text.trim()) { alert('텍스트를 입력하세요.'); return; }
+
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '생성 중…';
+
+    try {
+      const data = await j('/generate-text-image', {
+        method: 'POST',
+        body: JSON.stringify({
+          text,
+          fontSize : $('#fontSizeSelect').value,
+          color    : $('#textColorPicker').value,
+          bgColor  : noBgCheck.checked ? '' : bgColorPicker.value,
+          memo     : $('#textMemoInput').value
+        })
+      });
+
+      const urlAbs = `${location.origin}${data.url}`;
+      resultDiv.innerHTML = `
+        <div class="result-box">
+          <div style="text-align:center">
+            <img src="${data.url}" class="result-img" alt="생성된 이미지" id="result-text-thumb" style="max-width:100%;border-radius:8px;">
+          </div>
+          <div class="result-info">
+            <div class="result-url-row">
+              <span class="result-url"><span style="color:#1877f2;font-weight:bold;">URL&nbsp;</span>
+                <a href="${data.url}" target="_blank">${escapeHtml(urlAbs)}</a>
+              </span>
+              <button class="copy-btn" id="copy-text-url-btn" type="button">복사</button>
+            </div>
+            <div class="result-memo"><span style="color:#1877f2;font-weight:bold;">메모:</span> ${escapeHtml(data.memo || '')}</div>
+          </div>
+        </div>`;
+      resultDiv.style.display = '';
+
+      $('#copy-text-url-btn').onclick = function () {
+        navigator.clipboard.writeText(urlAbs).then(() => {
+          this.textContent = '✅';
+          setTimeout(() => this.textContent = '복사', 1200);
+        });
+      };
+      $('#result-text-thumb').onclick = () => openImagePreview(`${location.origin}${data.url}`);
+    } catch (err) {
+      console.error('Text image error:', err);
+      alert('이미지 생성 중 오류가 발생했습니다.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '이미지 생성';
+    }
+  };
+})();
+
 
 // ===== 결과 렌더러: 작은 미리보기 + 스크롤 리스트 + 전체복사 =====
 function renderCompactResult({ mount, imageUrl, items }) {

@@ -285,6 +285,77 @@ body{
 }
 .result-copy-all:hover{ background:#0b1220; }
 
+/* ==== Upload Tabs ==== */
+.upload-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.upload-tab {
+  padding: 8px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f5f7fb;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.upload-tab:hover { background: #eef2f8; }
+.upload-tab--active {
+  background: #111827;
+  color: #fff;
+  border-color: #111827;
+}
+
+/* ==== Text Image Form ==== */
+.text-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  background: #f8fafc;
+  transition: border-color .18s;
+  box-sizing: border-box;
+}
+.text-textarea:focus { border-color: #2563eb; background: #fff; }
+
+.text-opts { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.text-opt-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.text-opt-label { font-size: 14px; color: var(--ink-2); min-width: 72px; }
+.text-opt-select {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  background: #f8fafc;
+  cursor: pointer;
+  outline: none;
+}
+.text-opt-color {
+  width: 40px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 2px;
+  background: #f8fafc;
+}
+.text-opt-nobg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
 /* ==== Footer ==== */
 .site-footer{
   margin-top:40px;
