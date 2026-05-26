@@ -72,6 +72,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .row__replaced { flex: 0 0 140px; font-size: 11px; color: #bdbdbd; white-space: nowrap; }
 
 .row__actions { flex-shrink: 0; display: flex; gap: 6px; }
+.btn--mobile { background: #7b1fa2; color: #fff; }
+.btn--mobile:hover { background: #6a1b9a; }
 
 /* ── 이미지 팝업 ── */
 .img-popup { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; }
