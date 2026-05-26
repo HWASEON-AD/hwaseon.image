@@ -1,3 +1,10 @@
+/* ── 폰트 ── */
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 500;
+  src: url('/fonts/Pretendard-Medium.ttf') format('truetype');
+}
+
 /* ── 리셋 & 변수 ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {

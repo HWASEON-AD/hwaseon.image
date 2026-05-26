@@ -167,9 +167,11 @@ window.copyText = async function(text){
 let pretendardFontLoaded = false;
 async function ensurePretendardFont() {
   if (pretendardFontLoaded) return;
-  const font = new FontFace('Pretendard', 'url(/fonts/Pretendard-Medium.ttf)');
-  await font.load();
-  document.fonts.add(font);
+  try {
+    await document.fonts.load('500 16px Pretendard');
+  } catch(e) {
+    console.warn('Pretendard load failed, using fallback:', e.message);
+  }
   pretendardFontLoaded = true;
 }
 

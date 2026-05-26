@@ -1,3 +1,10 @@
+/* ── 폰트 ── */
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 500;
+  src: url('/fonts/Pretendard-Medium.ttf') format('truetype');
+}
+
 /* =========================================================
    HWASEON – Unified Styles (tidy, lossless)
    ※ 디자인 결과 불변 / 값·순서·셀렉터 유지
