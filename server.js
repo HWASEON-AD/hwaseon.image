@@ -376,9 +376,7 @@ app.get('/image/:id', (req, res) => {
   // 모바일 UA 감지 → _m 파일 있으면 모바일 버전 서빙
   const ua = req.headers['user-agent'] || '';
   const isMobile = /Mobile|Android|iPhone|iPad|iPod/i.test(ua);
-  const ext = path.extname(img.filename);
-  const base = path.basename(img.filename, ext);
-  const mobileFilePath = path.join(UPLOADS_DIR, `${base}_m${ext}`);
+  const mobileFilePath = path.join(UPLOADS_DIR, img.filename.replace(/(\.[^.]+)$/, '_m$1'));
   const filePath = (isMobile && fs.existsSync(mobileFilePath)) ? mobileFilePath : path.join(UPLOADS_DIR, img.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: '이미지 파일을 찾을 수 없습니다.' });
 
@@ -388,7 +386,6 @@ app.get('/image/:id', (req, res) => {
 
     // ----- 방문자(IP+UA) 로그: 상한 유지 -----
     const ip = (req.headers['x-forwarded-for'] || req.connection.remoteAddress || '').split(',')[0].trim();
-    const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
     const key = `${ip}__${ua}`;
