@@ -6,7 +6,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "connect-redis": "^8.1.0",

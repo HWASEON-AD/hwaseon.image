@@ -16,7 +16,6 @@ const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const ExcelJS = require('exceljs');
 const fetch = require('node-fetch');  // 블로그 HTML 서버 사이드 fetch용 (package.json에 이미 포함)
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -53,15 +52,6 @@ ensureDir(DATA_DIR);
 ensureDir(UPLOADS_DIR);
 ensureDir(SESSIONS_DIR);
 
-// Pretendard 폰트 등록
-try {
-  const fontPath = path.join(__dirname, 'fonts', 'Pretendard-Medium.ttf');
-  const fontBuffer = fs.readFileSync(fontPath);
-  GlobalFonts.register(fontBuffer, 'Pretendard');
-  console.log('[font] Pretendard-Medium 등록 완료, size:', fontBuffer.length);
-} catch (e) {
-  console.error('[font] Pretendard 등록 실패:', e.message);
-}
 
 // ---- 앱 기본 ---------------------------------------------------------------
 app.set('trust proxy', 1);
@@ -372,79 +362,6 @@ app.post('/upload', uploadDisk.single('image'), (req, res) => {
 });
 
 // 텍스트 → 이미지 생성
-app.post('/generate-text-image', async (req, res) => {
-  try {
-    if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
-
-    const { text, fontSize, color, bgColor, memo } = req.body || {};
-    if (!text || !text.trim()) return res.status(400).json({ error: '텍스트를 입력하세요' });
-
-    const CANVAS_W  = 780;
-    const PADDING_X = 48;
-    const PADDING_Y = 40;
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    const maxW  = CANVAS_W - PADDING_X * 2;
-
-    // 폰트 크기 결정
-    const tempCanvas = createCanvas(CANVAS_W, 100);
-    const tempCtx    = tempCanvas.getContext('2d');
-    let finalSize = 40;
-    if (!fontSize || fontSize === 'auto') {
-      for (let sz = 80; sz >= 12; sz -= 2) {
-        tempCtx.font = `500 ${sz}px Pretendard`;
-        if (lines.every(l => tempCtx.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
-      }
-    } else {
-      finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
-    }
-
-    const lineH  = Math.ceil(finalSize * 1.6);
-    const canvasH = Math.max(80, PADDING_Y * 2 + lines.length * lineH);
-
-    const canvas = createCanvas(CANVAS_W, canvasH);
-    const ctx    = canvas.getContext('2d');
-
-    // 배경
-    if (bgColor && bgColor !== 'transparent' && bgColor !== '') {
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, CANVAS_W, canvasH);
-    }
-
-    // 텍스트
-    ctx.font         = `500 ${finalSize}px Pretendard`;
-    ctx.fillStyle    = color || '#333333';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    lines.forEach((line, i) => {
-      ctx.fillText(line || '', CANVAS_W / 2, PADDING_Y + i * lineH + lineH / 2);
-    });
-
-    const buffer = await canvas.encode('png');
-
-    // 파일 저장 (업로드와 동일한 구조)
-    const id       = Date.now().toString() + Math.floor(Math.random() * 10000);
-    const filename = `${id}.png`;
-    fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
-
-    const url = `/image/${id}`;
-    images.push({
-      id, filename, url,
-      memo: (memo || '').toString(),
-      owner: req.session.user.id,
-      views: 0,
-      dailyCounts: {},
-      topReferers: {},
-      createdAt: new Date().toISOString(),
-      textGenerated: true
-    });
-    persistImages();
-
-    res.json({ url, memo: (memo || '').toString() });
-  } catch (e) {
-    console.error('[generate-text-image]', e);
-    res.status(500).json({ error: '이미지 생성 중 오류가 발생했습니다.' });
-  }
-});
 
 // 이미지 제공(집계/캐시 포함)
 app.get('/image/:id', (req, res) => {
@@ -725,68 +642,6 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
 });
 
 // 텍스트로 이미지 교체
-app.post('/replace-image-text', async (req, res) => {
-  try {
-    const { id, text, fontSize, color, bgColor } = req.body || {};
-    if (!id || !text?.trim()) return res.json({ success: false, error: 'ID 또는 텍스트 누락' });
-
-    const target = images.find(img => img.id === id);
-    if (!target) return res.json({ success: false, error: '이미지 ID 불일치' });
-
-    const CANVAS_W  = 780;
-    const PADDING_X = 48;
-    const PADDING_Y = 40;
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    const maxW  = CANVAS_W - PADDING_X * 2;
-
-    const tempCanvas = createCanvas(CANVAS_W, 100);
-    const tempCtx    = tempCanvas.getContext('2d');
-    let finalSize = 40;
-    if (!fontSize || fontSize === 'auto') {
-      for (let sz = 80; sz >= 12; sz -= 2) {
-        tempCtx.font = `500 ${sz}px Pretendard`;
-        if (lines.every(l => tempCtx.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
-      }
-    } else {
-      finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
-    }
-
-    const lineH   = Math.ceil(finalSize * 1.6);
-    const canvasH = Math.max(80, PADDING_Y * 2 + lines.length * lineH);
-    const canvas  = createCanvas(CANVAS_W, canvasH);
-    const ctx     = canvas.getContext('2d');
-
-    if (bgColor && bgColor !== 'transparent' && bgColor !== '') {
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, CANVAS_W, canvasH);
-    }
-    ctx.font = `500 ${finalSize}px Pretendard`;
-    ctx.fillStyle    = color || '#333333';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    lines.forEach((line, i) => {
-      ctx.fillText(line || '', CANVAS_W / 2, PADDING_Y + i * lineH + lineH / 2);
-    });
-
-    const buffer = await canvas.encode('png');
-
-    // 기존 파일 덮어쓰기 (PNG로 교체 — 확장자 무관하게 내용만 교체)
-    const imagePath = path.join(UPLOADS_DIR, target.filename);
-    fs.writeFileSync(imagePath, buffer);
-
-    target.replacedAt = new Date().toISOString();
-    target.textGenerated = true;
-    if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
-    target.replaceHistory.push(target.replacedAt);
-    if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);
-    persistImages();
-
-    res.json({ success: true, replacedAt: target.replacedAt });
-  } catch (err) {
-    console.error('[replace-image-text]', err);
-    res.json({ success: false, error: err.message });
-  }
-});
 
 // ---- 블로그 링크 라우트 ------------------------------------------------------
 

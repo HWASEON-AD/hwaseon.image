@@ -162,6 +162,65 @@ window.copyText = async function(text){
 })();
 
 /** =========================================================
+ *  브라우저 canvas로 텍스트 → PNG blob 생성 (공용 함수)
+ * ======================================================= */
+let pretendardFontLoaded = false;
+async function ensurePretendardFont() {
+  if (pretendardFontLoaded) return;
+  const font = new FontFace('Pretendard', 'url(/fonts/Pretendard-Medium.ttf)');
+  await font.load();
+  document.fonts.add(font);
+  pretendardFontLoaded = true;
+}
+
+async function renderTextToBlob({ text, fontSize, color, bgColor }) {
+  await ensurePretendardFont();
+
+  const CANVAS_W  = 780;
+  const PADDING_X = 48;
+  const PADDING_Y = 40;
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const maxW  = CANVAS_W - PADDING_X * 2;
+
+  // 폰트 크기 결정
+  const tmp = document.createElement('canvas');
+  tmp.width = CANVAS_W; tmp.height = 100;
+  const tc  = tmp.getContext('2d');
+  let finalSize = 40;
+  if (!fontSize || fontSize === 'auto') {
+    for (let sz = 80; sz >= 12; sz -= 2) {
+      tc.font = `500 ${sz}px Pretendard`;
+      if (lines.every(l => tc.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
+    }
+  } else {
+    finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
+  }
+
+  const lineH   = Math.ceil(finalSize * 1.6);
+  const canvasH = Math.max(80, PADDING_Y * 2 + lines.length * lineH);
+  const canvas  = document.createElement('canvas');
+  canvas.width  = CANVAS_W;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext('2d');
+
+  if (bgColor && bgColor !== '') {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, CANVAS_W, canvasH);
+  }
+  ctx.font         = `500 ${finalSize}px Pretendard`;
+  ctx.fillStyle    = color || '#333333';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((line, i) => {
+    ctx.fillText(line || '', CANVAS_W / 2, PADDING_Y + i * lineH + lineH / 2);
+  });
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob 실패')), 'image/png');
+  });
+}
+
+/** =========================================================
  *  텍스트 → 이미지 생성 탭
  * ======================================================= */
 (function initTextImagePage() {
@@ -185,12 +244,10 @@ window.copyText = async function(text){
   tabImage.onclick = () => showTab('image');
   tabText.onclick  = () => showTab('text');
 
-  // 배경 없음 체크 → 색상 피커 비활성화
   const noBgCheck     = $('#noBgCheck');
   const bgColorPicker = $('#bgColorPicker');
   noBgCheck.onchange  = () => { bgColorPicker.disabled = noBgCheck.checked; };
 
-  // 폼 제출
   $('#textForm').onsubmit = async (e) => {
     e.preventDefault();
     const text = $('#textInput').value;
@@ -201,16 +258,18 @@ window.copyText = async function(text){
     submitBtn.textContent = '생성 중…';
 
     try {
-      const data = await j('/generate-text-image', {
-        method: 'POST',
-        body: JSON.stringify({
-          text,
-          fontSize : $('#fontSizeSelect').value,
-          color    : $('#textColorPicker').value,
-          bgColor  : noBgCheck.checked ? '' : bgColorPicker.value,
-          memo     : $('#textMemoInput').value
-        })
+      const blob = await renderTextToBlob({
+        text,
+        fontSize : $('#fontSizeSelect').value,
+        color    : $('#textColorPicker').value,
+        bgColor  : noBgCheck.checked ? '' : bgColorPicker.value
       });
+
+      const fd = new FormData();
+      fd.append('image', blob, 'text-image.png');
+      fd.append('memo', $('#textMemoInput').value);
+      const res  = await fetch('/upload', { method: 'POST', body: fd, credentials: 'include' });
+      const data = await res.json();
 
       const urlAbs = `${location.origin}${data.url}`;
       resultDiv.innerHTML = `
@@ -236,7 +295,7 @@ window.copyText = async function(text){
           setTimeout(() => this.textContent = '복사', 1200);
         });
       };
-      $('#result-text-thumb').onclick = () => openImagePreview(`${location.origin}${data.url}`);
+      $('#result-text-thumb').onclick = () => openImagePreview(urlAbs);
     } catch (err) {
       console.error('Text image error:', err);
       alert('이미지 생성 중 오류가 발생했습니다.');
@@ -569,16 +628,17 @@ function renderCompactResult({ mount, imageUrl, items }) {
       const btn = $('#replaceTextSubmit');
       btn.disabled = true; btn.textContent = '생성 중…';
       try {
-        const data = await j('/replace-image-text', {
-          method: 'POST',
-          body: JSON.stringify({
-            id       : replaceTargetId,
-            text,
-            fontSize : $('#replaceFontSize').value,
-            color    : $('#replaceTextColor').value,
-            bgColor  : $('#replaceNoBg').checked ? '' : $('#replaceBgColor').value
-          })
+        const blob = await renderTextToBlob({
+          text,
+          fontSize : $('#replaceFontSize').value,
+          color    : $('#replaceTextColor').value,
+          bgColor  : $('#replaceNoBg').checked ? '' : $('#replaceBgColor').value
         });
+        const fd = new FormData();
+        fd.append('image', blob, 'text-image.png');
+        fd.append('id', replaceTargetId);
+        const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
+        const data = await res.json();
         afterReplace(data, '텍스트로');
       } catch { showToast('서버 오류 발생', 'error'); }
       finally { btn.disabled = false; btn.textContent = '교체'; }
