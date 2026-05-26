@@ -16,7 +16,6 @@ const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const ExcelJS = require('exceljs');
 const fetch = require('node-fetch');  // 블로그 HTML 서버 사이드 fetch용 (package.json에 이미 포함)
-const Jimp  = require('jimp');        // 순수 JS 이미지 리사이즈 (모바일용)
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -26,10 +25,8 @@ const DATA_DIR      = '/data';                     // Persistent Disk
 const USERS_FILE    = path.join(DATA_DIR, 'users.json');
 const IMAGES_FILE   = path.join(DATA_DIR, 'images.json');
 const BLOG_LINKS_FILE = path.join(DATA_DIR, 'blog-links.json');  // 블로그 링크 저장 파일
-const UPLOADS_DIR      = path.join(DATA_DIR, 'uploads');
-const SESSIONS_DIR     = path.join(DATA_DIR, 'sessions');
-const MOBILE_CACHE_DIR = path.join(DATA_DIR, 'mobile_cache');
-const MOBILE_SCALE     = 4; // 모바일 서빙 시 세로 배율
+const UPLOADS_DIR   = path.join(DATA_DIR, 'uploads');
+const SESSIONS_DIR  = path.join(DATA_DIR, 'sessions');
 const MAX_DAILY_TRAFFIC = 1500;                   // 이미지별 일일 제한
 const MAX_REFERERS      = 100;                    // referer의 상한
 const MAX_DAYS_KEEP     = 180;                    // 일자 집계 보존일수
@@ -54,7 +51,6 @@ function saveJson(file, data) {
 ensureDir(DATA_DIR);
 ensureDir(UPLOADS_DIR);
 ensureDir(SESSIONS_DIR);
-ensureDir(MOBILE_CACHE_DIR);
 
 // ---- 앱 기본 ---------------------------------------------------------------
 app.set('trust proxy', 1);
@@ -365,7 +361,7 @@ app.post('/upload', uploadDisk.single('image'), (req, res) => {
 });
 
 // 이미지 제공(집계/캐시 포함)
-app.get('/image/:id', async (req, res) => {
+app.get('/image/:id', (req, res) => {
   const id = (req.params.id || '').replace(/\.[^/.]+$/,''); // 확장자 붙여도 허용
   const img = images.find(i => i.id === id);
   if (!img) return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
@@ -440,22 +436,6 @@ app.get('/image/:id', async (req, res) => {
   const ext = path.extname(img.filename).toLowerCase();
   const map = { '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.png':'image/png', '.gif':'image/gif', '.webp':'image/webp' };
   res.set('Content-Type', map[ext] || 'application/octet-stream');
-
-  // 모바일 UA → 세로 4배 확대 버전 서빙 (캐시 후 재사용)
-  const ua = req.headers['user-agent'] || '';
-  if (/Mobile|Android|iPhone|iPad|iPod/i.test(ua)) {
-    const cachePath = path.join(MOBILE_CACHE_DIR, `${img.id}_m${ext}`);
-    if (!fs.existsSync(cachePath)) {
-      try {
-        const image = await Jimp.read(filePath);
-        await image.resize(image.getWidth(), image.getHeight() * MOBILE_SCALE).writeAsync(cachePath);
-      } catch (e) {
-        console.error('[mobile resize]', e);
-        return res.sendFile(filePath); // 실패 시 원본 서빙
-      }
-    }
-    return res.sendFile(cachePath);
-  }
 
   res.sendFile(filePath);
 });
@@ -643,11 +623,6 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
 
     const imagePath = path.join(UPLOADS_DIR, target.filename);
     fs.writeFileSync(imagePath, req.file.buffer);  // 기존 파일 내용만 교체
-
-    // 모바일 캐시 삭제 (교체 시 재생성되도록)
-    const cacheExt = path.extname(target.filename).toLowerCase();
-    const cachePath = path.join(MOBILE_CACHE_DIR, `${target.id}_m${cacheExt}`);
-    if (fs.existsSync(cachePath)) try { fs.unlinkSync(cachePath); } catch(_) {}
 
     // 교체 이력 기록 (마지막 교체 시각 + 최근 10건 히스토리)
     target.replacedAt = new Date().toISOString();
