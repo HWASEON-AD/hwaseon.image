@@ -188,11 +188,27 @@ async function renderTextToBlob({ text, fontSize, color, bgColor }) {
   const tmp = document.createElement('canvas');
   tmp.width = CANVAS_W; tmp.height = 100;
   const tc  = tmp.getContext('2d');
-  let finalSize = 40;
+  // 모바일(약 360px)에서도 읽히려면 780px 기준 최소 28px 이상 필요 (360/780 × 28 ≈ 13px)
+  let finalSize = 28;
   if (!fontSize || fontSize === 'auto') {
-    for (let sz = 80; sz >= 12; sz -= 2) {
+    for (let sz = 80; sz >= 28; sz -= 2) {
       tc.font = `500 ${sz}px Pretendard`;
       if (lines.every(l => tc.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
+    }
+    // 28px로도 안 맞으면 자동 줄바꿈
+    tc.font = `500 ${finalSize}px Pretendard`;
+    if (!lines.every(l => tc.measureText(l || ' ').width <= maxW)) {
+      const wrappedLines = [];
+      for (const line of lines) {
+        if (tc.measureText(line || ' ').width <= maxW) { wrappedLines.push(line); continue; }
+        let cur = '';
+        for (const ch of line.split('')) {
+          if (tc.measureText(cur + ch).width > maxW) { wrappedLines.push(cur); cur = ch; }
+          else cur += ch;
+        }
+        if (cur) wrappedLines.push(cur);
+      }
+      lines.splice(0, lines.length, ...wrappedLines);
     }
   } else {
     finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
