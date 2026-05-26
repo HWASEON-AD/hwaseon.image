@@ -341,12 +341,10 @@ function renderCompactResult({ mount, imageUrl, items }) {
         <span class="row__replaced">${replacedAt}</span>
         <div class="row__actions">
           <button class="btn btn--xs btn--primary row__replace" data-img-id="${imgId}">교체</button>
-          <button class="btn btn--xs btn--mobile row__replace-mobile" data-img-id="${imgId}">모바일</button>
           <button class="btn btn--xs btn--outline row__detail" data-img-id="${imgId}">상세 보기</button>
           <button class="btn btn--xs btn--danger row__delete" data-img-id="${imgId}">삭제</button>
         </div>
         <input type="file" class="row__file-input hidden" accept="image/*" data-img-id="${imgId}" />
-        <input type="file" class="row__file-input-mobile hidden" accept="image/*" data-img-id="${imgId}" />
       `;
       grid.appendChild(row);
     }
@@ -379,17 +377,6 @@ function renderCompactResult({ mount, imageUrl, items }) {
         const fileInput = grid.querySelector(`.row__file-input[data-img-id="${imgId}"]`);
         if (!fileInput) return;
         fileInput.onchange = () => doReplaceImage(imgId, fileInput);
-        fileInput.click();
-      });
-    });
-
-    // 모바일 전용 교체
-    $$('.row__replace-mobile', grid).forEach(btn => {
-      btn.addEventListener('click', () => {
-        const imgId = btn.dataset.imgId;
-        const fileInput = grid.querySelector(`.row__file-input-mobile[data-img-id="${imgId}"]`);
-        if (!fileInput) return;
-        fileInput.onchange = () => doReplaceMobileImage(imgId, fileInput);
         fileInput.click();
       });
     });
@@ -442,22 +429,6 @@ function renderCompactResult({ mount, imageUrl, items }) {
       } else {
         showToast('교체 실패: ' + (data.error || ''), 'error');
       }
-    } catch { showToast('서버 오류 발생', 'error'); }
-    fileInput.value = '';
-  }
-
-  /* ── 모바일 이미지 등록 ── */
-  async function doReplaceMobileImage(imgId, fileInput) {
-    const file = fileInput?.files?.[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('image', file);
-    fd.append('id', imgId);
-    try {
-      const res = await fetch('/replace-image-mobile', { method: 'POST', body: fd, credentials: 'include' });
-      const data = await res.json();
-      if (data.success) showToast('모바일 이미지 등록 완료', 'success');
-      else showToast('등록 실패: ' + (data.error || ''), 'error');
     } catch { showToast('서버 오류 발생', 'error'); }
     fileInput.value = '';
   }

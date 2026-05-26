@@ -382,6 +382,7 @@ app.get('/image/:id', (req, res) => {
 
     // ----- 방문자(IP+UA) 로그: 상한 유지 -----
     const ip = (req.headers['x-forwarded-for'] || req.connection.remoteAddress || '').split(',')[0].trim();
+    const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
     const key = `${ip}__${ua}`;
@@ -632,38 +633,6 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
 
     // 프런트에서 캐시 무력화를 원하면, /image/:id?ts=... 형태로 요청 권장.
     res.json({ success: true, newUrl: target.url, replacedAt: target.replacedAt });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// 모바일 전용 이미지 등록/교체 ({id}_m 파일로 저장)
-app.post('/replace-image-mobile', uploadMem.single('image'), (req, res) => {
-  try {
-    const id = req.body.id;
-    if (!id || !req.file) return res.json({ success: false, error: 'ID 또는 파일 누락' });
-    const target = images.find(img => img.id === id);
-    if (!target) return res.json({ success: false, error: '이미지 ID 불일치' });
-    const ext = path.extname(target.filename);
-    const base = path.basename(target.filename, ext);
-    const mobilePath = path.join(UPLOADS_DIR, `${base}_m${ext}`);
-    fs.writeFileSync(mobilePath, req.file.buffer);
-    res.json({ success: true, message: '모바일 이미지 등록 완료' });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// 모바일 전용 이미지 삭제
-app.delete('/replace-image-mobile/:id', (req, res) => {
-  try {
-    const target = images.find(img => img.id === req.params.id);
-    if (!target) return res.json({ success: false, error: '이미지 ID 불일치' });
-    const ext = path.extname(target.filename);
-    const base = path.basename(target.filename, ext);
-    const mobilePath = path.join(UPLOADS_DIR, `${base}_m${ext}`);
-    if (fs.existsSync(mobilePath)) fs.unlinkSync(mobilePath);
-    res.json({ success: true });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
