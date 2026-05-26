@@ -722,6 +722,70 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
   }
 });
 
+// 텍스트로 이미지 교체
+app.post('/replace-image-text', async (req, res) => {
+  try {
+    const { id, text, fontSize, color, bgColor } = req.body || {};
+    if (!id || !text?.trim()) return res.json({ success: false, error: 'ID 또는 텍스트 누락' });
+
+    const target = images.find(img => img.id === id);
+    if (!target) return res.json({ success: false, error: '이미지 ID 불일치' });
+
+    const CANVAS_W  = 780;
+    const PADDING_X = 48;
+    const PADDING_Y = 40;
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const maxW  = CANVAS_W - PADDING_X * 2;
+
+    const tempCanvas = createCanvas(CANVAS_W, 100);
+    const tempCtx    = tempCanvas.getContext('2d');
+    let finalSize = 40;
+    if (!fontSize || fontSize === 'auto') {
+      for (let sz = 80; sz >= 12; sz -= 2) {
+        tempCtx.font = `500 ${sz}px Pretendard`;
+        if (lines.every(l => tempCtx.measureText(l || ' ').width <= maxW)) { finalSize = sz; break; }
+      }
+    } else {
+      finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
+    }
+
+    const lineH   = Math.ceil(finalSize * 1.6);
+    const canvasH = Math.max(80, PADDING_Y * 2 + lines.length * lineH);
+    const canvas  = createCanvas(CANVAS_W, canvasH);
+    const ctx     = canvas.getContext('2d');
+
+    if (bgColor && bgColor !== 'transparent' && bgColor !== '') {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, CANVAS_W, canvasH);
+    }
+    ctx.font = `500 ${finalSize}px Pretendard`;
+    ctx.fillStyle    = color || '#333333';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    lines.forEach((line, i) => {
+      ctx.fillText(line || '', CANVAS_W / 2, PADDING_Y + i * lineH + lineH / 2);
+    });
+
+    const buffer = await canvas.encode('png');
+
+    // 기존 파일 덮어쓰기 (PNG로 교체 — 확장자 무관하게 내용만 교체)
+    const imagePath = path.join(UPLOADS_DIR, target.filename);
+    fs.writeFileSync(imagePath, buffer);
+
+    target.replacedAt = new Date().toISOString();
+    target.textGenerated = true;
+    if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
+    target.replaceHistory.push(target.replacedAt);
+    if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);
+    persistImages();
+
+    res.json({ success: true, replacedAt: target.replacedAt });
+  } catch (err) {
+    console.error('[replace-image-text]', err);
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // ---- 블로그 링크 라우트 ------------------------------------------------------
 
 // GET /blog-links — 로그인 사용자가 등록한 블로그 링크 목록

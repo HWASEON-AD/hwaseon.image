@@ -458,13 +458,7 @@ function renderCompactResult({ mount, imageUrl, items }) {
 
     // 교체
     $$('.row__replace', grid).forEach(btn => {
-      btn.addEventListener('click', () => {
-        const imgId = btn.dataset.imgId;
-        const fileInput = grid.querySelector(`.row__file-input[data-img-id="${imgId}"]`);
-        if (!fileInput) return;
-        fileInput.onchange = () => doReplaceImage(imgId, fileInput);
-        fileInput.click();
-      });
+      btn.addEventListener('click', () => openReplaceModal(btn.dataset.imgId));
     });
 
     // 상세 보기
@@ -491,7 +485,107 @@ function renderCompactResult({ mount, imageUrl, items }) {
     });
   }
 
-  /* ── 이미지 교체 ── */
+  /* ── 교체 모달 ── */
+  let replaceTargetId = null;
+
+  function openReplaceModal(imgId) {
+    replaceTargetId = imgId;
+    const modal = $('#replaceModal');
+    if (!modal) return;
+    // 초기화
+    $('#replaceFileInput').value = '';
+    $('#replaceFileSpan').textContent = '📁 이미지 선택';
+    $('#replaceImageSubmit').disabled = true;
+    $('#replaceTextInput').value = '';
+    showReplaceTab('image');
+    modal.classList.remove('hidden');
+  }
+
+  function showReplaceTab(which) {
+    const isText = which === 'text';
+    $('#replaceTabImage').classList.toggle('replace-tab--active', !isText);
+    $('#replaceTabText').classList.toggle('replace-tab--active', isText);
+    $('#replaceImagePane').classList.toggle('hidden', isText);
+    $('#replaceTextPane').classList.toggle('hidden', !isText);
+  }
+
+  function closeReplaceModal() {
+    $('#replaceModal')?.classList.add('hidden');
+    replaceTargetId = null;
+  }
+
+  function afterReplace(data, label) {
+    if (data.success) {
+      if (data.replacedAt && replaceTargetId) {
+        const row = grid.querySelector(`.img-row[data-image-id="${replaceTargetId}"]`);
+        if (row) {
+          const el = row.querySelector('.row__replaced');
+          if (el) el.textContent = `마지막 교체: ${formatDate(data.replacedAt)}`;
+        }
+        const imgObj = allImages.find(i => (i.id || (i.url||'').split('/').pop()) === replaceTargetId);
+        if (imgObj) imgObj.replacedAt = data.replacedAt;
+      }
+      showToast(`${label} 교체됐습니다.`, 'success');
+      closeReplaceModal();
+    } else {
+      showToast('교체 실패: ' + (data.error || ''), 'error');
+    }
+  }
+
+  // 모달 이벤트 바인딩 (DOM 준비 후 1회)
+  document.addEventListener('DOMContentLoaded', () => {
+    $('#replaceModalClose')?.addEventListener('click', closeReplaceModal);
+    $('#replaceModal')?.addEventListener('click', e => { if (e.target === $('#replaceModal')) closeReplaceModal(); });
+    $('#replaceTabImage')?.addEventListener('click', () => showReplaceTab('image'));
+    $('#replaceTabText')?.addEventListener('click',  () => showReplaceTab('text'));
+
+    $('#replaceNoBg')?.addEventListener('change', e => {
+      $('#replaceBgColor').disabled = e.target.checked;
+    });
+
+    $('#replaceFileInput')?.addEventListener('change', e => {
+      const file = e.target.files[0];
+      $('#replaceFileSpan').textContent = file ? file.name : '📁 이미지 선택';
+      $('#replaceImageSubmit').disabled = !file;
+    });
+
+    $('#replaceImageSubmit')?.addEventListener('click', async () => {
+      const file = $('#replaceFileInput').files[0];
+      if (!file || !replaceTargetId) return;
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('id', replaceTargetId);
+      try {
+        const res  = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
+        const data = await res.json();
+        afterReplace(data, '이미지가');
+      } catch { showToast('서버 오류 발생', 'error'); }
+    });
+
+    $('#replaceTextSubmit')?.addEventListener('click', async () => {
+      const text = $('#replaceTextInput').value;
+      if (!text.trim()) { showToast('텍스트를 입력하세요.', 'error'); return; }
+      if (!replaceTargetId) return;
+      const btn = $('#replaceTextSubmit');
+      btn.disabled = true; btn.textContent = '생성 중…';
+      try {
+        const data = await j('/replace-image-text', {
+          method: 'POST',
+          body: JSON.stringify({
+            id       : replaceTargetId,
+            text,
+            fontSize : $('#replaceFontSize').value,
+            color    : $('#replaceTextColor').value,
+            bgColor  : $('#replaceNoBg').checked ? '' : $('#replaceBgColor').value
+          })
+        });
+        afterReplace(data, '텍스트로');
+      } catch { showToast('서버 오류 발생', 'error'); }
+      finally { btn.disabled = false; btn.textContent = '교체'; }
+    });
+  });
+
+  /* ── 이미지 교체 (레거시, 미사용) ── */
   async function doReplaceImage(imgId, fileInput) {
     const file = fileInput?.files?.[0];
     if (!file) return;
@@ -501,20 +595,7 @@ function renderCompactResult({ mount, imageUrl, items }) {
     try {
       const res = await fetch('/replace-image', { method: 'POST', body: fd, credentials: 'include' });
       const data = await res.json();
-      if (data.success) {
-        if (data.replacedAt) {
-          const row = grid.querySelector(`.img-row[data-image-id="${imgId}"]`);
-          if (row) {
-            const replaced = row.querySelector('.row__replaced');
-            if (replaced) replaced.textContent = `마지막 교체: ${formatDate(data.replacedAt)}`;
-          }
-          const imgObj = allImages.find(i => (i.id || (i.url||'').split('/').pop()) === imgId);
-          if (imgObj) imgObj.replacedAt = data.replacedAt;
-        }
-        showToast('이미지가 교체됐습니다.', 'success');
-      } else {
-        showToast('교체 실패: ' + (data.error || ''), 'error');
-      }
+      afterReplace(data, '이미지가');
     } catch { showToast('서버 오류 발생', 'error'); }
     fileInput.value = '';
   }

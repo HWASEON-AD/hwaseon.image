@@ -60,6 +60,65 @@
   <!-- 토스트 컨테이너 -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- 교체 모달 -->
+  <div id="replaceModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width:480px;">
+      <div class="modal-title-row-main">
+        <span class="modal-title-filename">이미지 교체</span>
+        <button id="replaceModalClose" class="btn btn--ghost btn--sm">✕</button>
+      </div>
+
+      <div class="replace-tabs">
+        <button class="replace-tab replace-tab--active" id="replaceTabImage" type="button">이미지</button>
+        <button class="replace-tab" id="replaceTabText" type="button">텍스트</button>
+      </div>
+
+      <!-- 이미지 탭 -->
+      <div id="replaceImagePane">
+        <label class="replace-file-label" for="replaceFileInput">
+          <input type="file" id="replaceFileInput" accept="image/*" />
+          <span id="replaceFileSpan">📁 이미지 선택</span>
+        </label>
+        <div style="margin-top:14px;">
+          <button id="replaceImageSubmit" class="btn btn--primary btn--sm" disabled>교체</button>
+        </div>
+      </div>
+
+      <!-- 텍스트 탭 -->
+      <div id="replaceTextPane" class="hidden">
+        <textarea id="replaceTextInput" class="text-textarea" rows="4"
+          placeholder="텍스트 입력&#10;Enter로 줄바꿈 가능"></textarea>
+        <div class="text-opts" style="margin-top:12px;">
+          <div class="text-opt-row">
+            <span class="text-opt-label">폰트 크기</span>
+            <select id="replaceFontSize" class="text-opt-select">
+              <option value="auto">자동</option>
+              <option value="16">16</option>
+              <option value="20">20</option>
+              <option value="24">24</option>
+              <option value="32">32</option>
+              <option value="40">40</option>
+              <option value="48">48</option>
+              <option value="60">60</option>
+            </select>
+          </div>
+          <div class="text-opt-row">
+            <span class="text-opt-label">글자 색</span>
+            <input type="color" id="replaceTextColor" value="#333333" class="text-opt-color" />
+          </div>
+          <div class="text-opt-row">
+            <span class="text-opt-label">배경 색</span>
+            <input type="color" id="replaceBgColor" value="#ffffff" class="text-opt-color" />
+            <label class="text-opt-nobg"><input type="checkbox" id="replaceNoBg" /> 배경 없음</label>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <button id="replaceTextSubmit" class="btn btn--primary btn--sm">교체</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 상세 모달 -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">

@@ -89,6 +89,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 @keyframes toastIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
 .hidden { display: none !important; }
 
+/* ── 교체 모달 탭 ── */
+.replace-tabs { display: flex; gap: 4px; margin: 12px 0 16px; }
+.replace-tab { padding: 7px 18px; border: 1px solid var(--border); border-radius: 8px; background: #f5f7fb; color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+.replace-tab:hover { background: #eef2f8; }
+.replace-tab--active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+/* ── 텍스트 옵션 (교체 모달 공용) ── */
+.text-textarea { width: 100%; min-height: 100px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical; outline: none; background: #f8fafc; box-sizing: border-box; }
+.text-textarea:focus { border-color: var(--brand); background: #fff; }
+.text-opts { display: flex; flex-direction: column; gap: 8px; }
+.text-opt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.text-opt-label { font-size: 13px; color: var(--muted); min-width: 64px; }
+.text-opt-select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; background: #f8fafc; cursor: pointer; outline: none; }
+.text-opt-color { width: 36px; height: 28px; border: 1px solid var(--border); border-radius: 7px; cursor: pointer; padding: 2px; background: #f8fafc; }
+.text-opt-nobg { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+/* ── 교체 파일 선택 라벨 ── */
+.replace-file-label { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #f8fafc; border: 1px dashed #e2e8f0; border-radius: 10px; cursor: pointer; font-size: 14px; color: #6b7280; transition: border-color .18s; }
+.replace-file-label:hover { border-color: var(--brand); }
+.replace-file-label input { display: none; }
+
 /* ── 상세 모달 ── */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 300; display: flex; align-items: center; justify-content: center; }
 .modal-content { background: #fff; border-radius: var(--radius); padding: 24px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; }
