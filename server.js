@@ -17,6 +17,19 @@ const FileStore = require('session-file-store')(session);
 const ExcelJS = require('exceljs');
 const fetch = require('node-fetch');  // 블로그 HTML 서버 사이드 fetch용 (package.json에 이미 포함)
 
+// 서버사이드 텍스트→PNG 렌더링
+let canvasLib = null;
+try {
+  canvasLib = require('@napi-rs/canvas');
+  const fontPath = path.join(__dirname, 'public', 'fonts', 'Pretendard-Medium.ttf');
+  if (fs.existsSync(fontPath)) {
+    canvasLib.GlobalFonts.registerFromPath(fontPath, 'Pretendard');
+    console.log('[canvas] Pretendard font registered');
+  }
+} catch(e) {
+  console.warn('[canvas] @napi-rs/canvas not available:', e.message);
+}
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -641,7 +654,96 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
   }
 });
 
-// 텍스트로 이미지 교체
+// 텍스트로 이미지 교체 (서버사이드 renderTextToBlob)
+function renderTextServer({ text, fontSize, color, bgColor }) {
+  if (!canvasLib) throw new Error('@napi-rs/canvas not available');
+  const { createCanvas } = canvasLib;
+
+  const CANVAS_W  = 780;
+  const PADDING_X = 48;
+  const PADDING_Y = 40;
+  const MAX_W     = CANVAS_W - PADDING_X * 2;  // 684
+  const lines     = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+
+  // 폰트 크기 자동 결정
+  const tmp  = createCanvas(CANVAS_W, 80);
+  const tc   = tmp.getContext('2d');
+  let finalSize = 28;
+  const wantAuto = !fontSize || fontSize === 'auto';
+  if (wantAuto) {
+    for (let sz = 80; sz >= 28; sz -= 2) {
+      tc.font = `500 ${sz}px Pretendard, "Malgun Gothic", sans-serif`;
+      if (lines.every(l => tc.measureText(l || ' ').width <= MAX_W)) {
+        finalSize = sz;
+        break;
+      }
+    }
+  } else {
+    finalSize = Math.max(10, Math.min(200, parseInt(fontSize) || 40));
+  }
+
+  const lineH   = Math.ceil(finalSize * 1.6);
+  const canvasH = Math.max(80, PADDING_Y * 2 + lines.length * lineH);
+  const canvas  = createCanvas(CANVAS_W, canvasH);
+  const ctx     = canvas.getContext('2d');
+
+  // 배경
+  if (bgColor) {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, CANVAS_W, canvasH);
+  }
+
+  ctx.font         = `500 ${finalSize}px Pretendard, "Malgun Gothic", sans-serif`;
+  ctx.fillStyle    = color || '#000000';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((line, i) => {
+    ctx.fillText(line || '', CANVAS_W / 2, PADDING_Y + i * lineH + lineH / 2);
+  });
+
+  return canvas.toBuffer('image/png');
+}
+
+// POST /batch-replace-text — 텍스트 값만 보내면 서버가 PNG 생성 후 교체
+app.post('/batch-replace-text', express.json(), (req, res) => {
+  try {
+    const items = req.body?.items;
+    if (!Array.isArray(items) || items.length === 0)
+      return res.json({ success: false, error: 'items 배열 필요' });
+
+    const results = [];
+    for (const item of items) {
+      const { id, text, fontSize = 'auto', color = '#000000', bgColor = '' } = item;
+      if (!id || !text) { results.push({ id, success: false, error: 'id/text 누락' }); continue; }
+
+      const target = images.find(img => img.id === id);
+      if (!target) { results.push({ id, success: false, error: 'ID 없음' }); continue; }
+
+      let pngBuf;
+      try {
+        pngBuf = renderTextServer({ text, fontSize, color, bgColor });
+      } catch(e) {
+        results.push({ id, success: false, error: `렌더 실패: ${e.message}` });
+        continue;
+      }
+
+      const imagePath = path.join(UPLOADS_DIR, target.filename);
+      fs.writeFileSync(imagePath, pngBuf);
+      target.replacedAt = new Date().toISOString();
+      if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
+      target.replaceHistory.push(target.replacedAt);
+      if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);
+      results.push({ id, success: true });
+    }
+
+    persistImages();
+    const ok  = results.filter(r => r.success).length;
+    const bad = results.filter(r => !r.success).length;
+    res.json({ success: true, replaced: ok, failed: bad, results });
+  } catch(err) {
+    res.json({ success: false, error: err.message });
+  }
+});
 
 // ---- 블로그 링크 라우트 ------------------------------------------------------
 
