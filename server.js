@@ -442,18 +442,28 @@ app.get('/image/:id', (req, res) => {
   }
   persistImages();
 
+  // UA 기반 PC/모바일 분기 — PC 버전 파일이 있을 때만
+  const ua = req.headers['user-agent'] || '';
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  let serveFile = filePath;
+  if (!isMobile && img.pcFilename) {
+    const pcPath = path.join(UPLOADS_DIR, img.pcFilename);
+    if (fs.existsSync(pcPath)) serveFile = pcPath;
+  }
+
   // 캐시 헤더(교체를 고려하여 짧게)
-  const stat = fs.statSync(filePath);
+  const stat = fs.statSync(serveFile);
   res.set('Last-Modified', stat.mtime.toUTCString());
   res.set('ETag', `${stat.ino}-${stat.mtimeMs}-${stat.size}`);
   res.set('Cache-Control', 'public, max-age=600, must-revalidate'); // 10분
+  res.set('Vary', 'User-Agent');
 
   // Content-Type
   const ext = path.extname(img.filename).toLowerCase();
   const map = { '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.png':'image/png', '.gif':'image/gif', '.webp':'image/webp' };
   res.set('Content-Type', map[ext] || 'application/octet-stream');
 
-  res.sendFile(filePath);
+  res.sendFile(serveFile);
 });
 
 // 상세
