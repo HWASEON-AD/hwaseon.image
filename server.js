@@ -730,6 +730,8 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
       const imagePath = path.join(UPLOADS_DIR, target.filename);
       fs.writeFileSync(imagePath, pngBuf);
       target.replacedAt = new Date().toISOString();
+      target.lastText = text;
+      target.textOptions = { fontSize, color, bgColor };
       if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
       target.replaceHistory.push(target.replacedAt);
       if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);

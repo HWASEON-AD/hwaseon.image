@@ -709,12 +709,117 @@ function renderCompactResult({ mount, imageUrl, items }) {
       };
     }
 
+    // 텍스트 다운
+    const textDlBtn = $('#textDownload');
+    if (textDlBtn) {
+      textDlBtn.onclick = () => {
+        const rows = allImages.map(img => {
+          const id  = img.id || (img.url||'').split('/').pop();
+          const url = img.url ? `${location.origin}${img.url}` : '';
+          const memo = (img.memo||'').replace(/"/g,'""');
+          const text = (img.lastText||'').replace(/"/g,'""');
+          return `"${id}","${url}","${memo}","${text}"`;
+        });
+        const csv = '이미지ID,URL,메모,마지막텍스트\n' + rows.join('\n');
+        const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `hwaseon_texts_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+      };
+    }
+
+    // 텍스트 일괄 변경 버튼
+    const bulkBtn = $('#bulkTextBtn');
+    if (bulkBtn) {
+      bulkBtn.onclick = () => {
+        $('#bulkTextModal')?.classList.remove('hidden');
+      };
+    }
+
     const regBtn = $('#registerUserBtn');
     if (regBtn) {
       regBtn.style.display = me.role === 'admin' ? '' : 'none';
       if (me.role === 'admin') regBtn.onclick = () => location.href = 'register.html';
     }
   }
+
+  /* ── 텍스트 일괄 변경 모달 ── */
+  (function initBulkTextModal() {
+    const modal = $('#bulkTextModal');
+    if (!modal) return;
+
+    function closeBulkModal() { modal.classList.add('hidden'); }
+    $('#bulkTextModalClose')?.addEventListener('click', closeBulkModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeBulkModal(); });
+
+    $('#bulkNoBg')?.addEventListener('change', e => {
+      $('#bulkBgColor').disabled = e.target.checked;
+    });
+    if ($('#bulkNoBg')) $('#bulkBgColor').disabled = true;
+
+    // 현재 텍스트 불러오기
+    $('#bulkLoadBtn')?.addEventListener('click', () => {
+      const lines = allImages
+        .filter(img => img.lastText)
+        .map(img => {
+          const id  = img.id || (img.url||'').split('/').pop();
+          const txt = img.lastText.replace(/\n/g, '\\n');
+          return `${id} | ${txt}`;
+        });
+      $('#bulkTextInput').value = lines.join('\n');
+    });
+
+    // 일괄 교체 실행
+    $('#bulkTextSubmit')?.addEventListener('click', async () => {
+      const raw = ($('#bulkTextInput').value || '').trim();
+      if (!raw) { showToast('텍스트를 입력하세요.', 'error'); return; }
+
+      const fontSize = $('#bulkFontSize').value;
+      const color    = $('#bulkTextColor').value;
+      const bgColor  = $('#bulkNoBg').checked ? '' : $('#bulkBgColor').value;
+
+      const items = [];
+      for (const line of raw.split('\n')) {
+        const sep = line.indexOf(' | ');
+        if (sep < 0) continue;
+        const id   = line.slice(0, sep).trim();
+        const text = line.slice(sep + 3).replace(/\\n/g, '\n');
+        if (id && text) items.push({ id, text, fontSize, color, bgColor });
+      }
+      if (!items.length) { showToast('유효한 항목이 없습니다.', 'error'); return; }
+
+      const btn = $('#bulkTextSubmit');
+      const status = $('#bulkTextStatus');
+      btn.disabled = true;
+      status.textContent = `${items.length}개 교체 중…`;
+
+      try {
+        const BATCH = 50;
+        let done = 0, failed = 0;
+        for (let i = 0; i < items.length; i += BATCH) {
+          const res = await fetch('/batch-replace-text', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ items: items.slice(i, i+BATCH) })
+          });
+          const data = await res.json();
+          done   += data.replaced || 0;
+          failed += data.failed   || 0;
+          status.textContent = `진행 중… ${done}/${items.length}`;
+        }
+        showToast(`교체 완료: ${done}개 성공, ${failed}개 실패`, done > 0 ? 'success' : 'error');
+        status.textContent = `완료 — ${done}개 성공`;
+        if (done > 0) setTimeout(closeBulkModal, 1500);
+      } catch(e) {
+        showToast('오류: ' + e.message, 'error');
+        status.textContent = '';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
 
   /* ── 상세 모달 ── */
   function openDetailByImgId(imgId) {

@@ -29,6 +29,8 @@
     <div class="topbar">
       <a href="index.html" class="btn btn--primary">+ 이미지 업로드</a>
       <button id="excelDownload" class="btn btn--outline">엑셀 다운로드</button>
+      <button id="textDownload" class="btn btn--outline">텍스트 다운</button>
+      <button id="bulkTextBtn" class="btn btn--outline">텍스트 일괄 변경</button>
     </div>
 
     <!-- 블로그 검색 필터 -->
@@ -115,6 +117,63 @@
         <div style="margin-top:14px;">
           <button id="replaceTextSubmit" class="btn btn--primary btn--sm">교체</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 텍스트 일괄 변경 모달 -->
+  <div id="bulkTextModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width:580px;">
+      <div class="modal-title-row-main">
+        <span class="modal-title-filename">텍스트 일괄 변경</span>
+        <button id="bulkTextModalClose" class="btn btn--ghost btn--sm">✕</button>
+      </div>
+
+      <!-- 폰트 설정 -->
+      <div class="text-opts" style="margin-bottom:14px;">
+        <div class="text-opt-row">
+          <span class="text-opt-label">폰트</span>
+          <select id="bulkFontFamily" class="text-opt-select">
+            <option value="Pretendard">Pretendard</option>
+          </select>
+        </div>
+        <div class="text-opt-row">
+          <span class="text-opt-label">폰트 크기</span>
+          <select id="bulkFontSize" class="text-opt-select">
+            <option value="auto">자동</option>
+            <option value="16">16</option>
+            <option value="20">20</option>
+            <option value="24">24</option>
+            <option value="32">32</option>
+            <option value="40">40</option>
+            <option value="48">48</option>
+            <option value="60">60</option>
+          </select>
+        </div>
+        <div class="text-opt-row">
+          <span class="text-opt-label">글자 색</span>
+          <input type="color" id="bulkTextColor" value="#000000" class="text-opt-color" />
+        </div>
+        <div class="text-opt-row">
+          <span class="text-opt-label">배경 색</span>
+          <input type="color" id="bulkBgColor" value="#ffffff" class="text-opt-color" />
+          <label class="text-opt-nobg"><input type="checkbox" id="bulkNoBg" checked /> 배경 없음</label>
+        </div>
+      </div>
+
+      <!-- 입력 방법 안내 -->
+      <p style="font-size:0.82rem;color:#6b7280;margin-bottom:8px;">
+        각 줄에 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;">이미지ID | 텍스트</code> 형식으로 입력하세요.<br>
+        텍스트 안 줄바꿈은 <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;">\n</code> 으로 입력합니다.
+      </p>
+      <textarea id="bulkTextInput" class="text-textarea" rows="10"
+        style="width:100%;box-sizing:border-box;font-family:monospace;font-size:0.85rem;"
+        placeholder="1748593421304 | 본 포스팅은 아모레퍼시픽 '프리메라'로부터\n원고료를 제공받아 작성되었습니다.&#10;1748820434772 | 본 포스팅은 '해피바스'로부터 제품을 제공받아 직접 체험후 작성된 포스팅입니다."></textarea>
+
+      <div style="display:flex;gap:8px;margin-top:14px;align-items:center;">
+        <button id="bulkLoadBtn" class="btn btn--outline btn--sm">현재 텍스트 불러오기</button>
+        <button id="bulkTextSubmit" class="btn btn--primary btn--sm">일괄 교체 시작</button>
+        <span id="bulkTextStatus" style="font-size:0.83rem;color:#6b7280;"></span>
       </div>
     </div>
   </div>
