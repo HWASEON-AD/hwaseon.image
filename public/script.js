@@ -709,6 +709,34 @@ function renderCompactResult({ mount, imageUrl, items }) {
       };
     }
 
+    // 검색결과 엑셀 다운
+    const filteredExcelBtn = $('#filteredExcelDownload');
+    if (filteredExcelBtn) {
+      filteredExcelBtn.onclick = () => {
+        const images = filteredImages();
+        if (!images.length) { alert('표시된 이미지가 없습니다.'); return; }
+        const rows = images.map(img => {
+          const id  = img.id || (img.url||'').split('/').pop();
+          const url = img.url ? `${location.origin}${img.url}` : '';
+          const refs = img.topReferers ? Object.keys(img.topReferers).join(', ') : '';
+          return {
+            '이미지ID': id,
+            'URL': url,
+            '메모': img.memo || '',
+            '마지막텍스트': img.lastText || '',
+            '블로그': refs,
+            '업로드일': img.uploadedAt ? img.uploadedAt.slice(0,10) : '',
+            '마지막교체일': img.replacedAt ? img.replacedAt.slice(0,10) : '',
+          };
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '검색결과');
+        const label = filterValue ? `_${filterValue}` : '_전체';
+        XLSX.writeFile(wb, `hwaseon${label}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      };
+    }
+
     // 텍스트 다운
     const textDlBtn = $('#textDownload');
     if (textDlBtn) {
