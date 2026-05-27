@@ -707,6 +707,7 @@ function renderTextServer({ text, fontSize, color, bgColor, canvasWidth }) {
 }
 
 // POST /batch-replace-text — 텍스트 값만 보내면 서버가 PNG 생성 후 교체
+// target: 'mobile'(기본) → 기존 파일 교체 / 'pc' → {id}_pc.png 별도 생성
 app.post('/batch-replace-text', express.json(), (req, res) => {
   try {
     const items = req.body?.items;
@@ -715,11 +716,11 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
 
     const results = [];
     for (const item of items) {
-      const { id, text, fontSize = 'auto', color = '#000000', bgColor = '', canvasWidth } = item;
+      const { id, text, fontSize = 'auto', color = '#000000', bgColor = '', canvasWidth, target: ver = 'mobile' } = item;
       if (!id || !text) { results.push({ id, success: false, error: 'id/text 누락' }); continue; }
 
-      const target = images.find(img => img.id === id);
-      if (!target) { results.push({ id, success: false, error: 'ID 없음' }); continue; }
+      const imgRecord = images.find(img => img.id === id);
+      if (!imgRecord) { results.push({ id, success: false, error: 'ID 없음' }); continue; }
 
       let pngBuf;
       try {
@@ -729,15 +730,22 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
         continue;
       }
 
-      const imagePath = path.join(UPLOADS_DIR, target.filename);
-      fs.writeFileSync(imagePath, pngBuf);
-      target.replacedAt = new Date().toISOString();
-      target.lastText = text;
-      target.textOptions = { fontSize, color, bgColor };
-      if (!Array.isArray(target.replaceHistory)) target.replaceHistory = [];
-      target.replaceHistory.push(target.replacedAt);
-      if (target.replaceHistory.length > 10) target.replaceHistory = target.replaceHistory.slice(-10);
-      results.push({ id, success: true });
+      if (ver === 'pc') {
+        const pcFilename = `${id}_pc.png`;
+        fs.writeFileSync(path.join(UPLOADS_DIR, pcFilename), pngBuf);
+        imgRecord.pcFilename = pcFilename;
+        imgRecord.pcText = text;
+        imgRecord.pcTextOptions = { fontSize, color, bgColor };
+      } else {
+        fs.writeFileSync(path.join(UPLOADS_DIR, imgRecord.filename), pngBuf);
+        imgRecord.replacedAt = new Date().toISOString();
+        imgRecord.lastText = text;
+        imgRecord.textOptions = { fontSize, color, bgColor };
+        if (!Array.isArray(imgRecord.replaceHistory)) imgRecord.replaceHistory = [];
+        imgRecord.replaceHistory.push(imgRecord.replacedAt);
+        if (imgRecord.replaceHistory.length > 10) imgRecord.replaceHistory = imgRecord.replaceHistory.slice(-10);
+      }
+      results.push({ id, success: true, url: ver === 'pc' ? `/image/${id}/pc` : `/image/${id}` });
     }
 
     persistImages();
@@ -747,6 +755,21 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
   } catch(err) {
     res.json({ success: false, error: err.message });
   }
+});
+
+// GET /image/:id/pc — PC 전용 이미지 제공
+app.get('/image/:id/pc', (req, res) => {
+  const id = (req.params.id || '').replace(/\.[^/.]+$/, '');
+  const imgRecord = images.find(i => i.id === id);
+  if (!imgRecord) return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
+  if (!imgRecord.pcFilename) return res.status(404).json({ error: 'PC 버전이 없습니다.' });
+
+  const filePath = path.join(UPLOADS_DIR, imgRecord.pcFilename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'PC 파일을 찾을 수 없습니다.' });
+
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Content-Type', 'image/png');
+  res.sendFile(filePath);
 });
 
 // ---- 블로그 링크 라우트 ------------------------------------------------------
