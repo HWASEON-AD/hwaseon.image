@@ -655,23 +655,25 @@ app.post('/replace-image', uploadMem.single('image'), (req, res) => {
 });
 
 // 텍스트로 이미지 교체 (서버사이드 renderTextToBlob)
-function renderTextServer({ text, fontSize, color, bgColor }) {
+function renderTextServer({ text, fontSize, color, bgColor, canvasWidth }) {
   if (!canvasLib) throw new Error('@napi-rs/canvas not available');
   const { createCanvas } = canvasLib;
 
-  const CANVAS_W  = 780;
-  const PADDING_X = 48;
+  const CANVAS_W  = canvasWidth ? Math.max(200, parseInt(canvasWidth)) : 780;
+  const PADDING_X = Math.round(CANVAS_W * 0.062);  // ~6.2% padding
   const PADDING_Y = 40;
-  const MAX_W     = CANVAS_W - PADDING_X * 2;  // 684
+  const MAX_W     = CANVAS_W - PADDING_X * 2;
   const lines     = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 
   // 폰트 크기 자동 결정
   const tmp  = createCanvas(CANVAS_W, 80);
   const tc   = tmp.getContext('2d');
-  let finalSize = 28;
+  const maxSz = Math.round(CANVAS_W * 0.103);  // 캔버스 너비 비례 최대 폰트 (780→80, 600→62)
+  const minSz = Math.round(CANVAS_W * 0.036);  // 캔버스 너비 비례 최소 폰트 (780→28, 600→22)
+  let finalSize = minSz;
   const wantAuto = !fontSize || fontSize === 'auto';
   if (wantAuto) {
-    for (let sz = 80; sz >= 28; sz -= 2) {
+    for (let sz = maxSz; sz >= minSz; sz -= 2) {
       tc.font = `500 ${sz}px Pretendard, "Malgun Gothic", sans-serif`;
       if (lines.every(l => tc.measureText(l || ' ').width <= MAX_W)) {
         finalSize = sz;
@@ -713,7 +715,7 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
 
     const results = [];
     for (const item of items) {
-      const { id, text, fontSize = 'auto', color = '#000000', bgColor = '' } = item;
+      const { id, text, fontSize = 'auto', color = '#000000', bgColor = '', canvasWidth } = item;
       if (!id || !text) { results.push({ id, success: false, error: 'id/text 누락' }); continue; }
 
       const target = images.find(img => img.id === id);
@@ -721,7 +723,7 @@ app.post('/batch-replace-text', express.json(), (req, res) => {
 
       let pngBuf;
       try {
-        pngBuf = renderTextServer({ text, fontSize, color, bgColor });
+        pngBuf = renderTextServer({ text, fontSize, color, bgColor, canvasWidth });
       } catch(e) {
         results.push({ id, success: false, error: `렌더 실패: ${e.message}` });
         continue;
