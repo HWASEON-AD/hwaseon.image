@@ -683,11 +683,9 @@ function renderTextServer({ text, fontSize, color, bgColor, canvasWidth }) {
   let finalSize = minSz;
   const wantAuto = !fontSize || fontSize === 'auto';
   if (wantAuto) {
-    // @napi-rs/canvas는 한글 폭을 브라우저 대비 ~1.67배 크게 측정 → 보정
-    const FONT_SCALE = 1.67;
     for (let sz = maxSz; sz >= minSz; sz -= 2) {
       tc.font = `500 ${sz}px Pretendard, "Malgun Gothic", sans-serif`;
-      if (lines.every(l => tc.measureText(l || ' ').width <= MAX_W * FONT_SCALE)) {
+      if (lines.every(l => tc.measureText(l || ' ').width <= MAX_W)) {
         finalSize = sz;
         break;
       }
